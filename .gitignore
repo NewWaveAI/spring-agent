@@ -38,5 +38,8 @@ build/
 .env
 *.env
 
+### Maven Flatten Plugin ###
+.flattened-pom.xml
+
 ### Claude ###
 .claude/

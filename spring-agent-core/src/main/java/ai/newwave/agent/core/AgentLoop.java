@@ -28,7 +28,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.anthropic.api.AnthropicApi;
+
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import reactor.core.publisher.Flux;
@@ -421,7 +421,7 @@ public class AgentLoop {
 
         // Configure thinking if enabled
         if (config.thinkingLevel() != ThinkingLevel.OFF) {
-            optionsBuilder.thinking(AnthropicApi.ThinkingType.ENABLED, config.thinkingLevel().getBudgetTokens());
+            optionsBuilder.thinkingEnabled(config.thinkingLevel().getBudgetTokens());
         }
 
         // Register tools as ToolCallbacks that delegate to our AgentTool framework
