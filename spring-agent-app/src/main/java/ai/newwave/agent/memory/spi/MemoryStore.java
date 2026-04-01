@@ -7,7 +7,7 @@ import reactor.core.publisher.Mono;
 import java.util.Set;
 
 /**
- * SPI for persisting agent memories (cross-channel knowledge).
+ * SPI for persisting agent memories (cross-conversation knowledge).
  */
 public interface MemoryStore {
 

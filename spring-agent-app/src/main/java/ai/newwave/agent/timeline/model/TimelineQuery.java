@@ -8,7 +8,7 @@ import java.util.List;
  */
 public record TimelineQuery(
         String agentId,
-        String channelId,
+        String conversationId,
         List<String> eventTypes,
         Instant since,
         Instant until,
@@ -22,7 +22,7 @@ public record TimelineQuery(
 
     public static class Builder {
         private String agentId;
-        private String channelId;
+        private String conversationId;
         private List<String> eventTypes;
         private Instant since;
         private Instant until;
@@ -30,7 +30,7 @@ public record TimelineQuery(
         private int offset = 0;
 
         public Builder agentId(String v) { this.agentId = v; return this; }
-        public Builder channelId(String v) { this.channelId = v; return this; }
+        public Builder conversationId(String v) { this.conversationId = v; return this; }
         public Builder eventTypes(List<String> v) { this.eventTypes = v; return this; }
         public Builder since(Instant v) { this.since = v; return this; }
         public Builder until(Instant v) { this.until = v; return this; }
@@ -38,7 +38,7 @@ public record TimelineQuery(
         public Builder offset(int v) { this.offset = v; return this; }
 
         public TimelineQuery build() {
-            return new TimelineQuery(agentId, channelId, eventTypes, since, until, limit, offset);
+            return new TimelineQuery(agentId, conversationId, eventTypes, since, until, limit, offset);
         }
     }
 }

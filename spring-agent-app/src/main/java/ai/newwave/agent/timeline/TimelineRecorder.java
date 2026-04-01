@@ -1,7 +1,6 @@
 package ai.newwave.agent.timeline;
 
 import ai.newwave.agent.event.AgentEvent;
-import ai.newwave.agent.event.AgentEventListener;
 import ai.newwave.agent.timeline.model.TimelineActor;
 import ai.newwave.agent.timeline.model.TimelineEvent;
 import ai.newwave.agent.timeline.spi.TimelineStore;
@@ -9,13 +8,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Bridges the agent event system to the timeline store.
- * Automatically converts AgentEvents into TimelineEvents,
- * preserving the channelId from each event.
+ * Automatically converts AgentEvents into TimelineEvents.
+ * Use as a Flux consumer: {@code agent.stream(...).doOnNext(recorder::onEvent)}
  */
-public class TimelineRecorder implements AgentEventListener {
+public class TimelineRecorder implements Consumer<AgentEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(TimelineRecorder.class);
 
@@ -26,6 +26,10 @@ public class TimelineRecorder implements AgentEventListener {
     }
 
     @Override
+    public void accept(AgentEvent event) {
+        onEvent(event);
+    }
+
     public void onEvent(AgentEvent event) {
         TimelineEvent timelineEvent = toTimelineEvent(event);
         if (timelineEvent != null) {
@@ -38,7 +42,7 @@ public class TimelineRecorder implements AgentEventListener {
     private TimelineEvent toTimelineEvent(AgentEvent event) {
         TimelineActor agent = new TimelineActor.AgentActor(event.agentId(), "agent");
         String agentId = event.agentId();
-        String channelId = event.channelId();
+        String conversationId = event.conversationId();
 
         return switch (event) {
             case AgentEvent.AgentStart e -> TimelineEvent.builder()
@@ -46,7 +50,7 @@ public class TimelineRecorder implements AgentEventListener {
                     .eventType("agent_started")
                     .summary("Agent started")
                     .agentId(agentId)
-                    .channelId(channelId)
+                    .conversationId(conversationId)
                     .build();
 
             case AgentEvent.AgentEnd e -> TimelineEvent.builder()
@@ -55,7 +59,7 @@ public class TimelineRecorder implements AgentEventListener {
                     .summary(e.error() != null ? "Agent ended with error: " + e.error() : "Agent completed")
                     .metadata(e.error() != null ? Map.of("error", e.error()) : Map.of())
                     .agentId(agentId)
-                    .channelId(channelId)
+                    .conversationId(conversationId)
                     .build();
 
             case AgentEvent.ToolExecutionStart e -> TimelineEvent.builder()
@@ -64,7 +68,7 @@ public class TimelineRecorder implements AgentEventListener {
                     .summary("Started executing tool '%s'".formatted(e.toolUse().name()))
                     .metadata(Map.of("toolName", e.toolUse().name(), "toolUseId", e.toolUse().id()))
                     .agentId(agentId)
-                    .channelId(channelId)
+                    .conversationId(conversationId)
                     .build();
 
             case AgentEvent.ToolExecutionEnd e -> TimelineEvent.builder()
@@ -78,7 +82,7 @@ public class TimelineRecorder implements AgentEventListener {
                             "toolUseId", e.toolUse().id(),
                             "isError", e.result().isError()))
                     .agentId(agentId)
-                    .channelId(channelId)
+                    .conversationId(conversationId)
                     .build();
 
             case AgentEvent.ScheduleFired e -> TimelineEvent.builder()
@@ -87,7 +91,7 @@ public class TimelineRecorder implements AgentEventListener {
                     .summary("Schedule '%s' fired (type: %s)".formatted(e.scheduleId(), e.scheduleType()))
                     .metadata(e.metadata())
                     .agentId(agentId)
-                    .channelId(channelId)
+                    .conversationId(conversationId)
                     .build();
 
             case AgentEvent.TurnStart e -> TimelineEvent.builder()
@@ -95,10 +99,10 @@ public class TimelineRecorder implements AgentEventListener {
                     .eventType("turn_started")
                     .summary("Turn %d started".formatted(e.turnNumber()))
                     .agentId(agentId)
-                    .channelId(channelId)
+                    .conversationId(conversationId)
                     .build();
 
-            // Skip high-frequency events (message updates, turn ends) to avoid noise
+            // Skip high-frequency events
             case AgentEvent.MessageUpdate ignored -> null;
             case AgentEvent.MessageStart ignored -> null;
             case AgentEvent.TurnEnd ignored -> null;
@@ -109,7 +113,7 @@ public class TimelineRecorder implements AgentEventListener {
                     .eventType("message_completed")
                     .summary("Assistant message completed")
                     .agentId(agentId)
-                    .channelId(channelId)
+                    .conversationId(conversationId)
                     .build();
         };
     }

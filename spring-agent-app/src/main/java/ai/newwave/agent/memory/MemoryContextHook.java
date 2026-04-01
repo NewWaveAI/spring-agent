@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * AgentHooks implementation that prepends agent memories
- * to the context, giving the agent persistent cross-channel knowledge.
+ * to the context, giving the agent persistent cross-conversation knowledge.
  */
 public class MemoryContextHook implements AgentHooks {
 

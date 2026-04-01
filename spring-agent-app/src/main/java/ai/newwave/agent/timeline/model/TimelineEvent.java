@@ -16,7 +16,7 @@ public record TimelineEvent(
         String summary,
         Map<String, Object> metadata,
         String agentId,
-        String channelId
+        String conversationId
 ) {
 
     public TimelineEvent {
@@ -37,7 +37,7 @@ public record TimelineEvent(
         private String summary;
         private Map<String, Object> metadata;
         private String agentId;
-        private String channelId;
+        private String conversationId;
 
         public Builder id(String v) { this.id = v; return this; }
         public Builder timestamp(Instant v) { this.timestamp = v; return this; }
@@ -46,10 +46,10 @@ public record TimelineEvent(
         public Builder summary(String v) { this.summary = v; return this; }
         public Builder metadata(Map<String, Object> v) { this.metadata = v; return this; }
         public Builder agentId(String v) { this.agentId = v; return this; }
-        public Builder channelId(String v) { this.channelId = v; return this; }
+        public Builder conversationId(String v) { this.conversationId = v; return this; }
 
         public TimelineEvent build() {
-            return new TimelineEvent(id, timestamp, actor, eventType, summary, metadata, agentId, channelId);
+            return new TimelineEvent(id, timestamp, actor, eventType, summary, metadata, agentId, conversationId);
         }
     }
 }

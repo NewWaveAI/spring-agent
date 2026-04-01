@@ -52,7 +52,7 @@ public class AwsSchedulingAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public ScheduleDispatcher scheduleDispatcher(Agent agent) {
-        return new ScheduleDispatcher(agent, agent.getEmitter());
+        return new ScheduleDispatcher(agent);
     }
 
     @Bean

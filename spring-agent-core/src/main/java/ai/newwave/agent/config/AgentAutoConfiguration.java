@@ -1,8 +1,6 @@
 package ai.newwave.agent.config;
 
 import ai.newwave.agent.core.Agent;
-import ai.newwave.agent.core.ChannelManager;
-import ai.newwave.agent.state.memory.InMemoryConversationStore;
 import ai.newwave.agent.state.spi.ConversationStore;
 import ai.newwave.agent.tool.AgentTool;
 import org.springframework.ai.chat.model.ChatModel;
@@ -38,21 +36,8 @@ public class AgentAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ConversationStore conversationStore() {
-        return new InMemoryConversationStore();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public ChannelManager channelManager(ConversationStore conversationStore) {
-        return new ChannelManager(conversationStore);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public AgentConfig agentConfig(AgentProperties props, List<AgentTool<?, ?>> tools, AgentHooks hooks) {
         return AgentConfig.builder()
-                .agentId(props.getId())
                 .systemPrompt(resolvePrompt(props.getSystemPrompt()))
                 .thinkingLevel(props.getThinkingLevel())
                 .maxTokens(props.getMaxTokens())
@@ -67,8 +52,8 @@ public class AgentAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public Agent agent(AgentConfig config, ChatModel chatModel, ChannelManager channelManager) {
-        return new Agent(config, chatModel, channelManager);
+    public Agent agent(AgentConfig config, ChatModel chatModel, ConversationStore conversationStore) {
+        return new Agent(config, chatModel, conversationStore);
     }
 
     private String resolvePrompt(String value) {

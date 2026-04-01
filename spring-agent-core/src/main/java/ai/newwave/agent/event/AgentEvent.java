@@ -10,7 +10,7 @@ import java.util.Map;
 /**
  * Sealed interface for all agent lifecycle events.
  * Enables exhaustive pattern matching in switch expressions.
- * All events include agentId (which agent) and channelId (which channel).
+ * All events include agentId (which agent) and conversationId (which conversation).
  */
 public sealed interface AgentEvent permits
         AgentEvent.AgentStart,
@@ -27,68 +27,68 @@ public sealed interface AgentEvent permits
 
     Instant timestamp();
 
-    String type();
+    AgentEventType type();
 
     /** The agent that emitted this event. */
     String agentId();
 
-    /** The channel this event belongs to, or null for global events. */
-    String channelId();
+    /** The conversation this event belongs to, or null for global events. */
+    String conversationId();
 
-    record AgentStart(Instant timestamp, String agentId, String channelId) implements AgentEvent {
-        public AgentStart(String agentId, String channelId) { this(Instant.now(), agentId, channelId); }
-        @Override public String type() { return "agent_start"; }
+    record AgentStart(Instant timestamp, String agentId, String conversationId) implements AgentEvent {
+        public AgentStart(String agentId, String conversationId) { this(Instant.now(), agentId, conversationId); }
+        @Override public AgentEventType type() { return AgentEventType.AGENT_START; }
     }
 
-    record AgentEnd(Instant timestamp, String agentId, String channelId, String error) implements AgentEvent {
-        public AgentEnd(String agentId, String channelId) { this(Instant.now(), agentId, channelId, null); }
-        public AgentEnd(String agentId, String channelId, String error) { this(Instant.now(), agentId, channelId, error); }
-        @Override public String type() { return "agent_end"; }
+    record AgentEnd(Instant timestamp, String agentId, String conversationId, String error) implements AgentEvent {
+        public AgentEnd(String agentId, String conversationId) { this(Instant.now(), agentId, conversationId, null); }
+        public AgentEnd(String agentId, String conversationId, String error) { this(Instant.now(), agentId, conversationId, error); }
+        @Override public AgentEventType type() { return AgentEventType.AGENT_END; }
     }
 
-    record TurnStart(Instant timestamp, String agentId, String channelId, int turnNumber) implements AgentEvent {
-        public TurnStart(String agentId, String channelId, int turnNumber) { this(Instant.now(), agentId, channelId, turnNumber); }
-        @Override public String type() { return "turn_start"; }
+    record TurnStart(Instant timestamp, String agentId, String conversationId, int turnNumber) implements AgentEvent {
+        public TurnStart(String agentId, String conversationId, int turnNumber) { this(Instant.now(), agentId, conversationId, turnNumber); }
+        @Override public AgentEventType type() { return AgentEventType.TURN_START; }
     }
 
-    record TurnEnd(Instant timestamp, String agentId, String channelId, int turnNumber) implements AgentEvent {
-        public TurnEnd(String agentId, String channelId, int turnNumber) { this(Instant.now(), agentId, channelId, turnNumber); }
-        @Override public String type() { return "turn_end"; }
+    record TurnEnd(Instant timestamp, String agentId, String conversationId, int turnNumber) implements AgentEvent {
+        public TurnEnd(String agentId, String conversationId, int turnNumber) { this(Instant.now(), agentId, conversationId, turnNumber); }
+        @Override public AgentEventType type() { return AgentEventType.TURN_END; }
     }
 
-    record MessageStart(Instant timestamp, String agentId, String channelId, AgentMessage message) implements AgentEvent {
-        public MessageStart(String agentId, String channelId, AgentMessage message) { this(Instant.now(), agentId, channelId, message); }
-        @Override public String type() { return "message_start"; }
+    record MessageStart(Instant timestamp, String agentId, String conversationId, AgentMessage message) implements AgentEvent {
+        public MessageStart(String agentId, String conversationId, AgentMessage message) { this(Instant.now(), agentId, conversationId, message); }
+        @Override public AgentEventType type() { return AgentEventType.MESSAGE_START; }
     }
 
-    record MessageUpdate(Instant timestamp, String agentId, String channelId, String delta) implements AgentEvent {
-        public MessageUpdate(String agentId, String channelId, String delta) { this(Instant.now(), agentId, channelId, delta); }
-        @Override public String type() { return "message_update"; }
+    record MessageUpdate(Instant timestamp, String agentId, String conversationId, String delta) implements AgentEvent {
+        public MessageUpdate(String agentId, String conversationId, String delta) { this(Instant.now(), agentId, conversationId, delta); }
+        @Override public AgentEventType type() { return AgentEventType.MESSAGE_UPDATE; }
     }
 
-    record MessageEnd(Instant timestamp, String agentId, String channelId, AgentMessage message) implements AgentEvent {
-        public MessageEnd(String agentId, String channelId, AgentMessage message) { this(Instant.now(), agentId, channelId, message); }
-        @Override public String type() { return "message_end"; }
+    record MessageEnd(Instant timestamp, String agentId, String conversationId, AgentMessage message) implements AgentEvent {
+        public MessageEnd(String agentId, String conversationId, AgentMessage message) { this(Instant.now(), agentId, conversationId, message); }
+        @Override public AgentEventType type() { return AgentEventType.MESSAGE_END; }
     }
 
-    record ToolExecutionStart(Instant timestamp, String agentId, String channelId, ContentBlock.ToolUse toolUse) implements AgentEvent {
-        public ToolExecutionStart(String agentId, String channelId, ContentBlock.ToolUse toolUse) { this(Instant.now(), agentId, channelId, toolUse); }
-        @Override public String type() { return "tool_execution_start"; }
+    record ToolExecutionStart(Instant timestamp, String agentId, String conversationId, ContentBlock.ToolUse toolUse) implements AgentEvent {
+        public ToolExecutionStart(String agentId, String conversationId, ContentBlock.ToolUse toolUse) { this(Instant.now(), agentId, conversationId, toolUse); }
+        @Override public AgentEventType type() { return AgentEventType.TOOL_EXECUTION_START; }
     }
 
-    record ToolExecutionUpdate(Instant timestamp, String agentId, String channelId, ContentBlock.ToolUse toolUse, String update) implements AgentEvent {
-        public ToolExecutionUpdate(String agentId, String channelId, ContentBlock.ToolUse toolUse, String update) { this(Instant.now(), agentId, channelId, toolUse, update); }
-        @Override public String type() { return "tool_execution_update"; }
+    record ToolExecutionUpdate(Instant timestamp, String agentId, String conversationId, ContentBlock.ToolUse toolUse, String update) implements AgentEvent {
+        public ToolExecutionUpdate(String agentId, String conversationId, ContentBlock.ToolUse toolUse, String update) { this(Instant.now(), agentId, conversationId, toolUse, update); }
+        @Override public AgentEventType type() { return AgentEventType.TOOL_EXECUTION_UPDATE; }
     }
 
-    record ToolExecutionEnd(Instant timestamp, String agentId, String channelId, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) implements AgentEvent {
-        public ToolExecutionEnd(String agentId, String channelId, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) { this(Instant.now(), agentId, channelId, toolUse, result); }
-        @Override public String type() { return "tool_execution_end"; }
+    record ToolExecutionEnd(Instant timestamp, String agentId, String conversationId, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) implements AgentEvent {
+        public ToolExecutionEnd(String agentId, String conversationId, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) { this(Instant.now(), agentId, conversationId, toolUse, result); }
+        @Override public AgentEventType type() { return AgentEventType.TOOL_EXECUTION_END; }
     }
 
-    record ScheduleFired(Instant timestamp, String agentId, String channelId, String scheduleId, String scheduleType, Map<String, Object> metadata) implements AgentEvent {
-        public ScheduleFired(String agentId, String channelId, String scheduleId, String scheduleType) { this(Instant.now(), agentId, channelId, scheduleId, scheduleType, Map.of()); }
-        public ScheduleFired(String agentId, String channelId, String scheduleId, String scheduleType, Map<String, Object> metadata) { this(Instant.now(), agentId, channelId, scheduleId, scheduleType, metadata); }
-        @Override public String type() { return "schedule_fired"; }
+    record ScheduleFired(Instant timestamp, String agentId, String conversationId, String scheduleId, String scheduleType, Map<String, Object> metadata) implements AgentEvent {
+        public ScheduleFired(String agentId, String conversationId, String scheduleId, String scheduleType) { this(Instant.now(), agentId, conversationId, scheduleId, scheduleType, Map.of()); }
+        public ScheduleFired(String agentId, String conversationId, String scheduleId, String scheduleType, Map<String, Object> metadata) { this(Instant.now(), agentId, conversationId, scheduleId, scheduleType, metadata); }
+        @Override public AgentEventType type() { return AgentEventType.SCHEDULE_FIRED; }
     }
 }

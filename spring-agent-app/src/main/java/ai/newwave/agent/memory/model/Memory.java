@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.Set;
 
 /**
- * A durable knowledge entry shared across all channels.
+ * A durable knowledge entry shared across all conversations.
  */
 public record Memory(
         String key,

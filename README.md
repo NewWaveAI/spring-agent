@@ -3,7 +3,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/ai.new-wave/spring-agent-core)](https://central.sonatype.com/artifact/ai.new-wave/spring-agent-core)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-A stateful AI agent framework for Java, built on [Spring Boot 4](https://spring.io/projects/spring-boot) and [Spring AI 2](https://spring.io/projects/spring-ai).
+A stateless AI agent client for Java, built on [Spring Boot 4](https://spring.io/projects/spring-boot) and [Spring AI 2](https://spring.io/projects/spring-ai). Designed for multi-tenant deployments behind a load balancer.
 
 ## Modules
 
@@ -64,28 +64,81 @@ agent:
   max-turns: 25
 ```
 
-Inject the auto-configured `Agent` bean:
+Inject the auto-configured `Agent` bean. The `agentId` typically comes from the authenticated user:
 
 ```java
-@Service
-public class ChatService {
+@RestController
+public class ChatController {
     private final Agent agent;
 
-    public ChatService(Agent agent) {
+    public ChatController(Agent agent) {
         this.agent = agent;
     }
 
-    public void chat(String userMessage) {
-        agent.subscribe(event -> {
-            if (event instanceof AgentEvent.MessageUpdate update) {
-                System.out.print(update.delta());
-            }
-        });
-
-        agent.prompt(userMessage).block();
+    @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<AgentEvent>> chat(
+            Authentication auth,
+            @RequestBody ChatRequest request
+    ) {
+        return agent.stream(AgentRequest.builder()
+                        .agentId(auth.getUserId())
+                        .conversationId(request.conversationId())
+                        .message(request.message())
+                        .build())
+                .map(e -> ServerSentEvent.<AgentEvent>builder()
+                        .event(e.type().value())
+                        .data(e)
+                        .build());
     }
 }
 ```
+
+The `Agent` is a stateless client — each `stream()` call is self-contained. It loads conversation history from the `ConversationStore`, runs the agent loop, streams events, and persists new messages. Any instance behind a load balancer can handle any request.
+
+## Core Concepts
+
+### Agent ID
+
+The **agent ID** identifies a user or tenant. Each agentId gets its own isolated set of conversations. In a multi-user app, each user gets their own agentId — typically the user's UUID from your auth system (`auth.getUserId()`).
+
+Both agentId and conversationId should be **UUIDs**. The only exception is the reserved `"default"` conversationId used when no conversationId is specified.
+
+There is no default agentId — it must always be provided in API calls. This ensures explicit scoping in multi-tenant environments.
+
+### Conversations
+
+A **conversation** is an isolated chat thread under an agentId. Each conversation has its own message history, persisted in the `ConversationStore`.
+
+Conversations are created on demand. The hierarchy is **agentId > conversationId** — one user can have many conversations.
+
+```java
+String userId = "550e8400-e29b-41d4-a716-446655440000";
+
+// User has two independent conversations
+String conv1 = UUID.randomUUID().toString();
+String conv2 = UUID.randomUUID().toString();
+agent.stream(AgentRequest.builder().agentId(userId).conversationId(conv1)
+        .message("Help me reset my password").build()).subscribe();
+agent.stream(AgentRequest.builder().agentId(userId).conversationId(conv2)
+        .message("I have a billing question").build()).subscribe();
+```
+
+If you don't specify a conversationId, `"default"` is used:
+
+```java
+// User's default conversation
+agent.stream(AgentRequest.builder().agentId(userId).message("Hello").build()).subscribe();
+```
+
+### Agent ID vs Conversation
+
+| | Agent ID | Conversation |
+|--|----------|-------------|
+| **What** | User/tenant identity (UUID) | A chat thread under an agent (UUID) |
+| **Set via** | `agentId` parameter (required) | `conversationId` parameter (defaults to `"default"`) |
+| **Cardinality** | Many per application | Many per agentId |
+| **Shares** | System prompt, tools, hooks, model config | Nothing — fully isolated |
+| **Isolates** | Conversations, message history | Message history |
 
 ## Configuration
 
@@ -93,7 +146,6 @@ Prefix: `agent.*`
 
 | Property | Default | Description |
 |----------|---------|-------------|
-| `id` | `"default"` | Agent identifier |
 | `system-prompt` | `"You are a helpful assistant."` | System prompt (can be a resource path like `classpath:prompt.txt`) |
 | `thinking-level` | `off` | Extended thinking: `off`, `low`, `medium`, `high`, `xhigh` |
 | `tool-execution-mode` | `parallel` | `parallel` or `sequential` |
@@ -112,55 +164,52 @@ Prefix: `agent.*`
 
 ## Agent API
 
-The `Agent` class is the main entry point. All methods have an overload that accepts a `channelId` for multi-channel support, and a default-channel variant.
-
-### Core Operations
+The `Agent` class is a stateless client. The only method is `stream()`, which takes an `AgentRequest` and returns a `Flux<AgentEvent>`.
 
 ```java
-// Start a new conversation turn
-agent.prompt("Hello").block();
-agent.prompt("Hello", "channel-1").block();
+// Build a request
+AgentRequest request = AgentRequest.builder()
+        .agentId(auth.getUserId())
+        .conversationId(UUID.randomUUID().toString())
+        .message("What's the weather?")
+        .build();
 
-// Resume from current transcript
-agent.continueConversation().block();
-
-// Inject a message mid-turn (picked up at next loop iteration)
-agent.steer("Also check the error logs");
-
-// Queue a message for after the current run completes
-agent.followUp("Summarize what you found");
+// Stream events
+agent.stream(request)
+    .doOnNext(event -> switch (event) {
+        case AgentEvent.MessageUpdate e -> System.out.print(e.delta());
+        case AgentEvent.ToolExecutionEnd e -> log.info("Tool {} done", e.toolUse().name());
+        case AgentEvent.AgentEnd e -> log.info("Done (error={})", e.error());
+        default -> {}
+    })
+    .subscribe();
 ```
 
-### Event Subscription
+`conversationId` defaults to `"default"` if omitted:
 
 ```java
-// Callback-based
-Disposable sub = agent.subscribe(event -> { /* handle */ });
-
-// Reactive stream
-agent.events()
-    .filter(e -> e instanceof AgentEvent.MessageUpdate)
-    .subscribe(e -> System.out.print(((AgentEvent.MessageUpdate) e).delta()));
-
-// Per-channel stream
-agent.events("channel-1").subscribe(/* ... */);
+AgentRequest request = AgentRequest.builder()
+        .agentId(auth.getUserId())
+        .message("Hello")
+        .build();  // conversationId = "default"
 ```
 
-### Control
+Each `stream()` call:
+1. Loads existing messages from `ConversationStore`
+2. Appends the new user message
+3. Runs the agent loop (LLM → tool calls → recurse until done)
+4. Emits `AgentEvent`s as a `Flux`
+5. Persists all new messages
+6. Completes
+
+To continue a conversation, call `stream()` again with the same agentId and conversationId — the previous messages are loaded from the store automatically.
+
+To manage conversations (delete, list, load messages), use `ConversationStore` directly:
 
 ```java
-agent.abort();                     // Cancel the current run
-agent.waitForIdle().block();       // Block until agent finishes
-agent.reset();                     // Clear all state
-```
-
-### Channel Management
-
-```java
-List<String> channels = agent.listChannels();
-List<AgentMessage> msgs = agent.getMessages("channel-1");
-AgentStatus status = agent.getStatus("channel-1");
-agent.deleteChannel("channel-1");
+conversationStore.deleteConversation(agentId, convId).block();
+conversationStore.listConversationIds(agentId).subscribe(id -> log.info("conv: {}", id));
+conversationStore.loadMessages(agentId, convId).subscribe(msg -> log.info("{}", msg));
 ```
 
 ## Tools
@@ -207,30 +256,39 @@ AgentToolResult.of(List.of(contentBlocks))          // Custom content blocks
 
 ## Events
 
-All agent lifecycle events are modeled as a sealed interface `AgentEvent`. Every event includes `timestamp()`, `type()`, `agentId()`, and `channelId()`.
+All agent lifecycle events are modeled as a sealed interface `AgentEvent`. Every event includes `timestamp()`, `type()` (returns `AgentEventType` enum), `agentId()`, and `conversationId()`.
 
-| Event | Key Fields | Description |
-|-------|-----------|-------------|
-| `AgentStart` | | Agent execution began |
-| `AgentEnd` | `error` | Agent completed (null error = success) |
-| `TurnStart` | `turnNumber` | LLM turn began |
-| `TurnEnd` | `turnNumber` | LLM turn ended |
-| `MessageStart` | `message` | Assistant message began |
-| `MessageUpdate` | `delta` | Streaming text chunk |
-| `MessageEnd` | `message` | Assistant message completed |
-| `ToolExecutionStart` | `toolUse` | Tool invocation began |
-| `ToolExecutionUpdate` | `toolUse`, `update` | Tool progress update |
-| `ToolExecutionEnd` | `toolUse`, `result` | Tool invocation completed |
-| `ScheduleFired` | `scheduleId`, `scheduleType`, `metadata` | Scheduled event fired |
+### AgentEventType Enum
+
+| Enum | Value | Record | Key Fields |
+|------|-------|--------|-----------|
+| `AGENT_START` | `agent_start` | `AgentStart` | |
+| `AGENT_END` | `agent_end` | `AgentEnd` | `error` |
+| `TURN_START` | `turn_start` | `TurnStart` | `turnNumber` |
+| `TURN_END` | `turn_end` | `TurnEnd` | `turnNumber` |
+| `MESSAGE_START` | `message_start` | `MessageStart` | `message` |
+| `MESSAGE_UPDATE` | `message_update` | `MessageUpdate` | `delta` |
+| `MESSAGE_END` | `message_end` | `MessageEnd` | `message` |
+| `TOOL_EXECUTION_START` | `tool_execution_start` | `ToolExecutionStart` | `toolUse` |
+| `TOOL_EXECUTION_UPDATE` | `tool_execution_update` | `ToolExecutionUpdate` | `toolUse`, `update` |
+| `TOOL_EXECUTION_END` | `tool_execution_end` | `ToolExecutionEnd` | `toolUse`, `result` |
+| `SCHEDULE_FIRED` | `schedule_fired` | `ScheduleFired` | `scheduleId`, `scheduleType`, `metadata` |
+
+Use `event.type()` for enum comparison, `event.type().value()` for the wire string (e.g., in SSE events).
 
 ```java
-agent.subscribe(event -> switch (event) {
-    case AgentEvent.AgentStart e       -> log.info("Started");
-    case AgentEvent.MessageUpdate e    -> System.out.print(e.delta());
-    case AgentEvent.ToolExecutionEnd e -> log.info("Tool {} done", e.toolUse().name());
-    case AgentEvent.AgentEnd e         -> log.info("Done (error={})", e.error());
-    default -> {}
-});
+agent.stream(AgentRequest.builder().agentId(agentId).conversationId(convId).message("Hello").build())
+    .doOnNext(event -> switch (event) {
+        case AgentEvent.AgentStart e       -> log.info("Started");
+        case AgentEvent.MessageUpdate e    -> System.out.print(e.delta());
+        case AgentEvent.ToolExecutionEnd e -> log.info("Tool {} done", e.toolUse().name());
+        case AgentEvent.AgentEnd e         -> log.info("Done (error={})", e.error());
+        default -> {}
+    })
+    .subscribe();
+
+// Compare by enum, not raw string
+if (event.type() == AgentEventType.AGENT_END) { /* ... */ }
 ```
 
 ## Hooks
@@ -333,24 +391,39 @@ public CompactionStrategy compactionStrategy() {
 
 ## Conversation Persistence
 
-By default, messages are stored in memory (`InMemoryConversationStore`). For production, provide a `ConversationStore` bean:
+A `ConversationStore` bean is required. Use the provided `JdbcConversationStore` for PostgreSQL:
 
 ```java
 @Bean
 public ConversationStore conversationStore(JdbcTemplate jdbc) {
-    return new MyJdbcConversationStore(jdbc);
+    return new JdbcConversationStore(jdbc);
 }
+```
+
+Required table:
+
+```sql
+CREATE TABLE conversation_messages (
+    id VARCHAR(255) PRIMARY KEY,
+    agent_id VARCHAR(255) NOT NULL,
+    conversation_id VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TIMESTAMP NOT NULL,
+    sequence INT NOT NULL
+);
+CREATE INDEX idx_conv_agent_conversation ON conversation_messages (agent_id, conversation_id, sequence);
 ```
 
 The `ConversationStore` interface:
 
 ```java
 public interface ConversationStore {
-    Mono<Void> appendMessage(String channelId, AgentMessage message);
-    Flux<AgentMessage> loadMessages(String channelId);
-    Mono<Void> replaceMessages(String channelId, List<AgentMessage> messages);
-    Mono<Void> deleteChannel(String channelId);
-    Flux<String> listChannelIds();
+    Mono<Void> appendMessage(String agentId, String conversationId, AgentMessage message);
+    Flux<AgentMessage> loadMessages(String agentId, String conversationId);
+    Mono<Void> replaceMessages(String agentId, String conversationId, List<AgentMessage> messages);
+    Mono<Void> deleteConversation(String agentId, String conversationId);
+    Flux<String> listConversationIds(String agentId);
 }
 ```
 
@@ -368,7 +441,7 @@ agent:
 POST /api/stream
 Content-Type: application/json
 
-{"message": "Hello, agent!"}
+{"message": "Hello!", "agentId": "550e8400-e29b-41d4-a716-446655440000"}
 ```
 
 Returns `text/event-stream`:
@@ -388,10 +461,10 @@ data: {"type":"agent_end","timestamp":"...","error":null}
 | Bean | Default |
 |------|---------|
 | `AgentHooks` | Composite of all registered hooks |
-| `ConversationStore` | `InMemoryConversationStore` |
-| `ChannelManager` | Default (backed by conversation store) |
 | `AgentConfig` | Built from `AgentProperties` + discovered tools + hooks |
-| `Agent` | Main agent instance |
+| `Agent` | Stateless agent client |
+
+**Required bean (no default):** `ConversationStore` — provide a `JdbcConversationStore` or custom implementation.
 
 Compaction beans (when `agent.compaction.enabled=true`):
 
@@ -433,14 +506,14 @@ agent:
 | Property | Default | Description |
 |----------|---------|-------------|
 | `enabled` | `false` | Enable timeline |
-| `max-store-size` | `10000` | Max events in the in-memory store |
+| `max-store-size` | `10000` | Max events in store |
 | `max-recent-events-for-context` | `20` | Number of events injected into LLM context |
 | `context-injection-enabled` | `true` | Auto-prepend recent timeline to LLM context |
 | `query-tool-enabled` | `true` | Register `query_timeline` tool for the agent |
 
 ### What Gets Recorded
 
-`TimelineRecorder` automatically subscribes to agent events and converts them to timeline entries:
+`TimelineRecorder` converts agent events to timeline entries. Requires a `TimelineStore` bean (e.g., `JdbcTimelineStore`).
 
 | Agent Event | Timeline Event Type | Example Summary |
 |-------------|-------------------|-----------------|
@@ -492,7 +565,7 @@ When `context-injection-enabled: true`, recent timeline events are prepended to 
 
 ### Persistence
 
-By default, events are stored in memory (`InMemoryTimelineStore`). For production, provide a `TimelineStore` bean:
+Provide a `TimelineStore` bean. Use the provided `JdbcTimelineStore` for PostgreSQL:
 
 ```java
 @Bean
@@ -512,7 +585,7 @@ CREATE TABLE timeline_events (
     summary TEXT NOT NULL,
     metadata TEXT,
     agent_id VARCHAR(255),
-    channel_id VARCHAR(255)
+    conversation_id VARCHAR(255)
 );
 CREATE INDEX idx_timeline_timestamp ON timeline_events (timestamp DESC);
 CREATE INDEX idx_timeline_type ON timeline_events (event_type);
@@ -521,7 +594,7 @@ CREATE INDEX idx_timeline_agent ON timeline_events (agent_id);
 
 ## Agent Memory
 
-Durable cross-channel knowledge store. The agent can save facts and search them across all conversations using built-in tools (`save_memory`, `search_memory`).
+Durable cross-conversation knowledge store. The agent can save facts and search them across all conversations using built-in tools (`save_memory`, `search_memory`).
 
 ```yaml
 agent:
@@ -579,7 +652,7 @@ When `context-injection-enabled: true`, all stored memories are prepended to the
 
 ### Persistence
 
-By default, memories are stored in memory (`InMemoryMemoryStore`). For production, provide a `MemoryStore` bean:
+Provide a `MemoryStore` bean. Use the provided `JdbcMemoryStore` for PostgreSQL:
 
 ```java
 @Bean
@@ -590,19 +663,13 @@ public MemoryStore memoryStore(JdbcTemplate jdbc) {
 
 ## Event Scheduling
 
-Schedule agent actions (prompt, steer, follow-up) for later execution. Supports immediate, one-shot, and periodic schedules.
+Schedule agent actions for later execution. Supports immediate, one-shot, and periodic schedules. Backed by EventBridge (AWS) or PostgreSQL.
 
 ```yaml
 agent:
   scheduling:
     enabled: true
-    provider: memory  # memory | aws | database
 ```
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `enabled` | `false` | Enable scheduling |
-| `provider` | `"memory"` | Backend: `memory`, `aws`, or `database` |
 
 ### Schedule Types
 
@@ -617,9 +684,9 @@ agent:
 Each schedule triggers an agent action:
 
 ```java
-new SchedulePayload.PromptAction("default", "Generate the daily report")
-new SchedulePayload.SteerAction("default", "Also check the error logs")
-new SchedulePayload.FollowUpAction("default", "Summarize what you found")
+new SchedulePayload.PromptAction(agentId, "default", "Generate the daily report")
+new SchedulePayload.SteerAction(agentId, "default", "Also check the error logs")
+new SchedulePayload.FollowUpAction(agentId, "default", "Summarize what you found")
 new SchedulePayload.CustomAction("webhook", Map.of("url", "https://..."))
 ```
 
@@ -635,7 +702,7 @@ public class ReminderService {
         scheduleService.create(ScheduledEvent.builder()
             .type(ScheduleType.ONE_SHOT)
             .scheduleExpression(when.toString())
-            .payload(new SchedulePayload.PromptAction("default", message))
+            .payload(new SchedulePayload.PromptAction(agentId, "default", message))
             .build()
         ).block();
     }
@@ -645,7 +712,7 @@ public class ReminderService {
         scheduleService.create(ScheduledEvent.builder()
             .type(ScheduleType.PERIODIC)
             .scheduleExpression("PT5M")
-            .payload(new SchedulePayload.PromptAction("default", "Check system health"))
+            .payload(new SchedulePayload.PromptAction(agentId, "default", "Check system health"))
             .build()
         ).block();
     }
@@ -668,17 +735,7 @@ public class ReminderService {
 
 The `query_schedules` tool lets the agent list, get, and cancel schedules. Actions: `list`, `get`, `cancel`.
 
-### Backend: In-Memory (dev/test)
-
-```yaml
-agent:
-  scheduling:
-    provider: memory
-```
-
-Uses `ScheduledExecutorService`. Data lost on restart. Single instance only.
-
-### Backend: AWS (production)
+### Backend: AWS (EventBridge)
 
 Uses EventBridge Scheduler for timing, SQS for delivery, DynamoDB for persistence and distributed locking. Safe for multi-instance deployments.
 
@@ -763,21 +820,21 @@ All SPIs use `@ConditionalOnMissingBean` — provide your own bean to override t
 
 ### spring-agent-core
 
-| SPI | Purpose | Default |
-|-----|---------|---------|
-| `ConversationStore` | Message persistence | `InMemoryConversationStore` |
+| SPI | Purpose | Provided Implementation |
+|-----|---------|----------------------|
+| `ConversationStore` | Message persistence | `JdbcConversationStore` (PostgreSQL) |
 | `AgentHooks` | Lifecycle hooks | No-op (composite) |
 | `TokenEstimator` | Token counting for compaction | `SimpleTokenEstimator` (length / 4) |
 | `CompactionStrategy` | Context summarization | `LlmCompactionStrategy` |
 
 ### spring-agent-app
 
-| SPI | Purpose | Default |
-|-----|---------|---------|
-| `TimelineStore` | Timeline event persistence | `InMemoryTimelineStore` |
-| `MemoryStore` | Agent memory persistence | `InMemoryMemoryStore` |
-| `ScheduleStore` | Schedule persistence + distributed locking | `InMemoryScheduleStore` |
-| `ScheduleExecutor` | Schedule execution engine | `InMemoryScheduleExecutor` |
+| SPI | Purpose | Provided Implementation |
+|-----|---------|----------------------|
+| `TimelineStore` | Timeline event persistence | `JdbcTimelineStore` (PostgreSQL) |
+| `MemoryStore` | Agent memory persistence | `JdbcMemoryStore` (PostgreSQL) |
+| `ScheduleStore` | Schedule persistence + locking | `AwsScheduleStore` (DynamoDB) |
+| `ScheduleExecutor` | Schedule execution engine | `AwsScheduleExecutor` (EventBridge) |
 
 ---
 

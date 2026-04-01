@@ -125,11 +125,11 @@ public class ScheduleQueryTool implements AgentTool<ScheduleQueryParams, List<Sc
     private String describePayload(ScheduledEvent event) {
         return switch (event.payload()) {
             case ai.newwave.agent.scheduling.model.SchedulePayload.PromptAction a ->
-                    "prompt(channel=%s)".formatted(a.channelId());
+                    "prompt(agent=%s, conversation=%s)".formatted(a.agentId(), a.conversationId());
             case ai.newwave.agent.scheduling.model.SchedulePayload.SteerAction a ->
-                    "steer(channel=%s)".formatted(a.channelId());
+                    "steer(agent=%s, conversation=%s)".formatted(a.agentId(), a.conversationId());
             case ai.newwave.agent.scheduling.model.SchedulePayload.FollowUpAction a ->
-                    "followUp(channel=%s)".formatted(a.channelId());
+                    "followUp(agent=%s, conversation=%s)".formatted(a.agentId(), a.conversationId());
             case ai.newwave.agent.scheduling.model.SchedulePayload.CustomAction a ->
                     "custom(%s)".formatted(a.actionType());
         };

@@ -6,13 +6,11 @@ import ai.newwave.agent.config.AgentConfig;
 import ai.newwave.agent.config.AgentHooks;
 import ai.newwave.agent.config.AgentLoopConfig;
 import ai.newwave.agent.event.AgentEvent;
-import ai.newwave.agent.event.EventEmitter;
 import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.model.ContentBlock;
 import ai.newwave.agent.model.MessageRole;
 import ai.newwave.agent.model.ThinkingLevel;
 import ai.newwave.agent.model.ToolExecutionMode;
-import ai.newwave.agent.state.ChannelState;
 import ai.newwave.agent.state.spi.ConversationStore;
 import ai.newwave.agent.tool.AgentTool;
 import ai.newwave.agent.tool.AgentToolResult;
@@ -28,11 +26,11 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
-
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,78 +38,60 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Core agent loop implementing the outer (follow-up) and inner (tool execution) loops.
- * Operates on a single {@link ChannelState} — one loop instance per channel per run.
+ * Core agent loop implementing the inner (tool execution) loop.
+ * Operates on a mutable message list — one loop instance per stream() call.
  */
 public class AgentLoop {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLoop.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    private final ChannelState channel;
+    private final String agentId;
+    private final String conversationId;
+    private final List<AgentMessage> messages;
     private final AgentConfig config;
     private final ChatModel chatModel;
-    private final EventEmitter emitter;
+    private final Sinks.Many<AgentEvent> sink;
     private final ConversationStore conversationStore;
 
     public AgentLoop(
-            ChannelState channel,
+            String agentId,
+            String conversationId,
+            List<AgentMessage> messages,
             AgentConfig config,
             ChatModel chatModel,
-            EventEmitter emitter,
+            Sinks.Many<AgentEvent> sink,
             ConversationStore conversationStore
     ) {
-        this.channel = channel;
+        this.agentId = agentId;
+        this.conversationId = conversationId;
+        this.messages = messages;
         this.config = config;
         this.chatModel = chatModel;
-        this.emitter = emitter;
+        this.sink = sink;
         this.conversationStore = conversationStore;
     }
 
     /**
-     * Run the full agent loop (outer + inner).
+     * Run the agent loop (LLM → tools → recurse until no more tool calls).
      */
     public Mono<Void> run() {
-        return outerLoop(0);
-    }
-
-    private Mono<Void> outerLoop(int turnNumber) {
-        return innerLoop(turnNumber)
-                .then(Mono.defer(() -> {
-                    if (channel.isAborting()) {
-                        return Mono.empty();
-                    }
-                    if (channel.getFollowUpQueue().hasMessages()) {
-                        AgentMessage followUp = channel.getFollowUpQueue().poll();
-                        if (followUp != null) {
-                            addMessage(followUp);
-                            return outerLoop(turnNumber + 1);
-                        }
-                    }
-                    return Mono.empty();
-                }));
+        return innerLoop(0);
     }
 
     private Mono<Void> innerLoop(int turnNumber) {
         return Mono.defer(() -> {
-            if (channel.isAborting()) {
-                return Mono.empty();
-            }
-
             AgentLoopConfig loopConfig = config.loopConfig();
             if (turnNumber >= loopConfig.maxTurns()) {
                 log.warn("Max turns ({}) reached, stopping agent loop", loopConfig.maxTurns());
                 return Mono.empty();
             }
 
-            // Drain steering queue
-            drainSteeringQueue();
+            sink.tryEmitNext(new AgentEvent.TurnStart(agentId, conversationId, turnNumber));
 
-            emitter.emit(new AgentEvent.TurnStart(config.agentId(), channel.getChannelId(), turnNumber));
-
-            // Build Spring AI messages from channel state
+            // Build Spring AI messages from conversation state
             AgentHooks hooks = loopConfig.hooks();
-            List<AgentMessage> context = hooks.transformContext(channel.getMessages());
+            List<AgentMessage> context = hooks.transformContext(List.copyOf(messages));
             List<AgentMessage> llmMessages = hooks.convertToLlm(context);
 
             // Convert to Spring AI messages and call LLM
@@ -123,14 +103,14 @@ public class AgentLoop {
                         // Check for tool calls in the last assistant message
                         List<ContentBlock.ToolUse> toolCalls = extractToolCalls();
                         if (toolCalls.isEmpty()) {
-                            emitter.emit(new AgentEvent.TurnEnd(config.agentId(), channel.getChannelId(), turnNumber));
+                            sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
                             return Mono.empty();
                         }
 
                         // Execute tools
                         return executeTools(toolCalls)
                                 .then(Mono.defer(() -> {
-                                    emitter.emit(new AgentEvent.TurnEnd(config.agentId(), channel.getChannelId(), turnNumber));
+                                    sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
                                     return innerLoop(turnNumber + 1);
                                 }));
                     }));
@@ -141,9 +121,8 @@ public class AgentLoop {
      * Stream LLM response, accumulating content blocks and emitting events.
      */
     private Mono<Void> streamLlmResponse(Prompt prompt, int turnNumber) {
-        return Mono.create(sink -> {
+        return Mono.create(monoSink -> {
             try {
-                // Use streaming to get incremental responses
                 Flux<ChatResponse> stream = chatModel.stream(prompt);
 
                 List<ContentBlock> contentBlocks = new ArrayList<>();
@@ -151,8 +130,6 @@ public class AgentLoop {
                 boolean[] messageStarted = {false};
 
                 stream.doOnNext(chatResponse -> {
-                    if (channel.isAborting()) return;
-
                     Generation generation = chatResponse.getResult();
                     if (generation == null) return;
 
@@ -162,8 +139,8 @@ public class AgentLoop {
                     // Emit message_start on first chunk
                     if (!messageStarted[0]) {
                         messageStarted[0] = true;
-                        emitter.emit(new AgentEvent.MessageStart(
-                                config.agentId(), channel.getChannelId(),
+                        sink.tryEmitNext(new AgentEvent.MessageStart(
+                                agentId, conversationId,
                                 AgentMessage.assistant(List.of())));
                     }
 
@@ -171,7 +148,7 @@ public class AgentLoop {
                     String text = output.getText();
                     if (text != null && !text.isEmpty()) {
                         textAccumulator.append(text);
-                        emitter.emit(new AgentEvent.MessageUpdate(config.agentId(), channel.getChannelId(), text));
+                        sink.tryEmitNext(new AgentEvent.MessageUpdate(agentId, conversationId, text));
                     }
 
                     // Check for tool calls in metadata
@@ -205,19 +182,18 @@ public class AgentLoop {
                     addMessage(assistantMessage);
 
                     if (messageStarted[0]) {
-                        emitter.emit(new AgentEvent.MessageEnd(config.agentId(), channel.getChannelId(), assistantMessage));
+                        sink.tryEmitNext(new AgentEvent.MessageEnd(agentId, conversationId, assistantMessage));
                     }
 
-                    sink.success();
+                    monoSink.success();
                 }).doOnError(error -> {
                     log.error("LLM streaming error", error);
-                    channel.setErrorMessage(error.getMessage());
-                    sink.error(error);
+                    monoSink.error(error);
                 }).subscribe();
 
             } catch (Exception e) {
                 log.error("Failed to initiate LLM stream", e);
-                sink.error(e);
+                monoSink.error(e);
             }
         });
     }
@@ -245,7 +221,6 @@ public class AgentLoop {
         return hooks.beforeToolCall(toolUse.name(), toolUse)
                 .flatMap(beforeResult -> {
                     if (!beforeResult.proceed()) {
-                        // Tool blocked - add a tool result message indicating it was blocked
                         String reason = beforeResult.reason() != null
                                 ? beforeResult.reason()
                                 : "Tool execution was blocked";
@@ -258,7 +233,6 @@ public class AgentLoop {
                         return Mono.empty();
                     }
 
-                    // Find the tool
                     AgentTool tool = findTool(toolUse.name());
                     if (tool == null) {
                         AgentMessage errorResult = AgentMessage.toolResult(
@@ -270,10 +244,8 @@ public class AgentLoop {
                         return Mono.empty();
                     }
 
-                    channel.addPendingToolCall(toolUse.id());
-                    emitter.emit(new AgentEvent.ToolExecutionStart(config.agentId(), channel.getChannelId(), toolUse));
+                    sink.tryEmitNext(new AgentEvent.ToolExecutionStart(agentId, conversationId, toolUse));
 
-                    // Deserialize parameters and execute
                     Object params;
                     try {
                         params = objectMapper.treeToValue(toolUse.input(), tool.parameterType());
@@ -301,13 +273,11 @@ public class AgentLoop {
     private Mono<Void> finishToolExecution(ContentBlock.ToolUse toolUse, AgentToolResult<?> result, AgentHooks hooks) {
         return hooks.afterToolCall(toolUse.name(), toolUse, result)
                 .map(modifiedResult -> {
-                    channel.removePendingToolCall(toolUse.id());
-
                     AgentMessage resultMessage = AgentMessage.toolResult(
                             toolUse.id(), modifiedResult.content(), modifiedResult.isError());
                     addMessage(resultMessage);
 
-                    emitter.emit(new AgentEvent.ToolExecutionEnd(config.agentId(), channel.getChannelId(), toolUse, modifiedResult));
+                    sink.tryEmitNext(new AgentEvent.ToolExecutionEnd(agentId, conversationId, toolUse, modifiedResult));
                     return modifiedResult;
                 })
                 .then();
@@ -315,25 +285,14 @@ public class AgentLoop {
 
     // --- Helpers ---
 
-    /**
-     * Add a message to both in-memory channel state and the conversation store.
-     */
     private void addMessage(AgentMessage message) {
-        channel.addMessage(message);
-        conversationStore.appendMessage(channel.getChannelId(), message)
+        messages.add(message);
+        conversationStore.appendMessage(agentId, conversationId, message)
                 .doOnError(e -> log.error("Failed to persist message to conversation store", e))
                 .subscribe();
     }
 
-    private void drainSteeringQueue() {
-        List<AgentMessage> steering = channel.getSteeringQueue().drainAll();
-        for (AgentMessage msg : steering) {
-            addMessage(msg);
-        }
-    }
-
     private List<ContentBlock.ToolUse> extractToolCalls() {
-        List<AgentMessage> messages = channel.getMessages();
         if (messages.isEmpty()) return List.of();
 
         AgentMessage lastMessage = messages.getLast();
@@ -352,11 +311,8 @@ public class AgentLoop {
                 .orElse(null);
     }
 
-    /**
-     * Convert AgentMessages to Spring AI Message types.
-     */
     private List<Message> toSpringMessages(List<AgentMessage> agentMessages) {
-        List<Message> messages = new ArrayList<>();
+        List<Message> result = new ArrayList<>();
         for (AgentMessage msg : agentMessages) {
             switch (msg.role()) {
                 case USER -> {
@@ -364,7 +320,7 @@ public class AgentLoop {
                             .filter(b -> b instanceof ContentBlock.Text)
                             .map(b -> ((ContentBlock.Text) b).text())
                             .collect(Collectors.joining("\n"));
-                    messages.add(new UserMessage(text));
+                    result.add(new UserMessage(text));
                 }
                 case ASSISTANT -> {
                     String text = msg.content().stream()
@@ -381,7 +337,7 @@ public class AgentLoop {
                             })
                             .toList();
 
-                    messages.add(AssistantMessage.builder()
+                    result.add(AssistantMessage.builder()
                             .content(text)
                             .toolCalls(toolCalls)
                             .build());
@@ -393,7 +349,7 @@ public class AgentLoop {
                                     .filter(b -> b instanceof ContentBlock.Text)
                                     .map(b -> ((ContentBlock.Text) b).text())
                                     .collect(Collectors.joining("\n"));
-                            messages.add(ToolResponseMessage.builder()
+                            result.add(ToolResponseMessage.builder()
                                     .responses(List.of(new ToolResponseMessage.ToolResponse(
                                             tr.toolUseId(), tr.toolUseId(), resultText)))
                                     .build());
@@ -402,37 +358,28 @@ public class AgentLoop {
                 }
             }
         }
-        return messages;
+        return result;
     }
 
-    /**
-     * Build a Spring AI Prompt with system message, chat options, and tool definitions.
-     */
     private Prompt buildPrompt(List<Message> messages) {
-        // Add system message at the beginning
         List<Message> allMessages = new ArrayList<>();
         allMessages.add(new SystemMessage(config.systemPrompt()));
         allMessages.addAll(messages);
 
-        // Build Anthropic-specific options
         var optionsBuilder = AnthropicChatOptions.builder()
                 .model(config.model())
                 .maxTokens(config.maxTokens());
 
-        // Configure thinking if enabled
         if (config.thinkingLevel() != ThinkingLevel.OFF) {
             optionsBuilder.thinkingEnabled(config.thinkingLevel().getBudgetTokens());
         }
 
-        // Register tools as ToolCallbacks that delegate to our AgentTool framework
         if (!config.tools().isEmpty()) {
             List<ToolCallback> callbacks = config.tools().stream()
                     .map(AgentToolCallbackAdapter::new)
                     .map(a -> (ToolCallback) a)
                     .toList();
             optionsBuilder.toolCallbacks(callbacks);
-
-            // Disable Spring AI's internal tool execution - we handle it ourselves
             optionsBuilder.internalToolExecutionEnabled(false);
         }
 

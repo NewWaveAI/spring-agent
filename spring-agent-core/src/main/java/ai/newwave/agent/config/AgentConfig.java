@@ -9,7 +9,6 @@ import java.util.List;
 /**
  * Top-level configuration for an Agent instance.
  *
- * @param agentId       Unique identifier for this agent (e.g. tenant/workspace ID)
  * @param systemPrompt  System instructions for the LLM
  * @param model         Model identifier (e.g. "claude-sonnet-4-5-20250514")
  * @param thinkingLevel Thinking/reasoning level
@@ -19,7 +18,6 @@ import java.util.List;
  * @param sessionId     Optional session ID for cache-aware backends
  */
 public record AgentConfig(
-        String agentId,
         String systemPrompt,
         String model,
         ThinkingLevel thinkingLevel,
@@ -34,7 +32,6 @@ public record AgentConfig(
     }
 
     public static class Builder {
-        private String agentId = "default";
         private String systemPrompt = "You are a helpful assistant.";
         private String model = "claude-sonnet-4-5-20250514";
         private ThinkingLevel thinkingLevel = ThinkingLevel.OFF;
@@ -42,11 +39,6 @@ public record AgentConfig(
         private List<AgentTool<?, ?>> tools = new ArrayList<>();
         private AgentLoopConfig loopConfig = AgentLoopConfig.defaults();
         private String sessionId;
-
-        public Builder agentId(String agentId) {
-            this.agentId = agentId;
-            return this;
-        }
 
         public Builder systemPrompt(String systemPrompt) {
             this.systemPrompt = systemPrompt;
@@ -89,7 +81,7 @@ public record AgentConfig(
         }
 
         public AgentConfig build() {
-            return new AgentConfig(agentId, systemPrompt, model, thinkingLevel, maxTokens, tools, loopConfig, sessionId);
+            return new AgentConfig(systemPrompt, model, thinkingLevel, maxTokens, tools, loopConfig, sessionId);
         }
     }
 }

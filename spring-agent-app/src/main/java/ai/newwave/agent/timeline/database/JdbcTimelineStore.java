@@ -31,7 +31,7 @@ import java.util.Map;
  *     summary TEXT NOT NULL,
  *     metadata TEXT,
  *     agent_id VARCHAR(255),
- *     channel_id VARCHAR(255)
+ *     conversation_id VARCHAR(255)
  * );
  * CREATE INDEX idx_timeline_timestamp ON timeline_events (timestamp DESC);
  * CREATE INDEX idx_timeline_type ON timeline_events (event_type);
@@ -53,7 +53,7 @@ public class JdbcTimelineStore implements TimelineStore {
     public Mono<TimelineEvent> append(TimelineEvent event) {
         return Mono.fromCallable(() -> {
             jdbc.update("""
-                INSERT INTO timeline_events (id, timestamp, actor, event_type, summary, metadata, agent_id, channel_id)
+                INSERT INTO timeline_events (id, timestamp, actor, event_type, summary, metadata, agent_id, conversation_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     event.id(),
@@ -63,7 +63,7 @@ public class JdbcTimelineStore implements TimelineStore {
                     event.summary(),
                     serialize(event.metadata()),
                     event.agentId(),
-                    event.channelId());
+                    event.conversationId());
             return event;
         });
     }
@@ -78,9 +78,9 @@ public class JdbcTimelineStore implements TimelineStore {
                 sql.append(" AND agent_id = ?");
                 params.add(query.agentId());
             }
-            if (query.channelId() != null) {
-                sql.append(" AND channel_id = ?");
-                params.add(query.channelId());
+            if (query.conversationId() != null) {
+                sql.append(" AND conversation_id = ?");
+                params.add(query.conversationId());
             }
             if (query.eventTypes() != null && !query.eventTypes().isEmpty()) {
                 sql.append(" AND event_type IN (");
@@ -151,7 +151,7 @@ public class JdbcTimelineStore implements TimelineStore {
                             ? objectMapper.readValue(rs.getString("metadata"), Map.class)
                             : Map.of())
                     .agentId(rs.getString("agent_id"))
-                    .channelId(rs.getString("channel_id"))
+                    .conversationId(rs.getString("conversation_id"))
                     .build();
         } catch (JsonProcessingException e) {
             throw new SQLException("Failed to deserialize timeline event", e);

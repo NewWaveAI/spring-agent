@@ -7,17 +7,17 @@ import reactor.core.publisher.Mono;
 import java.util.List;
 
 /**
- * SPI for persisting conversation message history per channel.
+ * SPI for persisting conversation message history, scoped by agentId and conversationId.
  */
 public interface ConversationStore {
 
-    Mono<Void> appendMessage(String channelId, AgentMessage message);
+    Mono<Void> appendMessage(String agentId, String conversationId, AgentMessage message);
 
-    Flux<AgentMessage> loadMessages(String channelId);
+    Flux<AgentMessage> loadMessages(String agentId, String conversationId);
 
-    Mono<Void> replaceMessages(String channelId, List<AgentMessage> messages);
+    Mono<Void> replaceMessages(String agentId, String conversationId, List<AgentMessage> messages);
 
-    Mono<Void> deleteChannel(String channelId);
+    Mono<Void> deleteConversation(String agentId, String conversationId);
 
-    Flux<String> listChannelIds();
+    Flux<String> listConversationIds(String agentId);
 }

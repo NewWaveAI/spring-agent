@@ -1,11 +1,9 @@
 package ai.newwave.agent.timeline.config;
 
 import ai.newwave.agent.config.AgentHooks;
-import ai.newwave.agent.core.Agent;
 import ai.newwave.agent.timeline.TimelineContextHook;
 import ai.newwave.agent.timeline.TimelineRecorder;
 import ai.newwave.agent.timeline.TimelineService;
-import ai.newwave.agent.timeline.memory.InMemoryTimelineStore;
 import ai.newwave.agent.timeline.spi.TimelineStore;
 import ai.newwave.agent.timeline.tool.TimelineQueryTool;
 import ai.newwave.agent.tool.AgentTool;
@@ -22,21 +20,14 @@ public class TimelineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TimelineStore timelineStore(TimelineProperties props) {
-        return new InMemoryTimelineStore(props.getMaxStoreSize());
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public TimelineService timelineService(TimelineStore store) {
         return new TimelineService(store);
     }
 
     @Bean
-    public TimelineRecorder timelineRecorder(TimelineStore store, Agent agent) {
-        TimelineRecorder recorder = new TimelineRecorder(store);
-        agent.subscribe(recorder);
-        return recorder;
+    @ConditionalOnMissingBean
+    public TimelineRecorder timelineRecorder(TimelineStore store) {
+        return new TimelineRecorder(store);
     }
 
     @Bean

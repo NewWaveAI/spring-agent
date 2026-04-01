@@ -9,7 +9,7 @@ import java.time.Instant;
 import java.util.Set;
 
 /**
- * Public API for agent memory (cross-channel knowledge store).
+ * Public API for agent memory (cross-conversation knowledge store).
  */
 public class MemoryService {
 

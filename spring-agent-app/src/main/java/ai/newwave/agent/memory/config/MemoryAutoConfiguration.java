@@ -3,7 +3,6 @@ package ai.newwave.agent.memory.config;
 import ai.newwave.agent.config.AgentHooks;
 import ai.newwave.agent.memory.MemoryContextHook;
 import ai.newwave.agent.memory.MemoryService;
-import ai.newwave.agent.memory.memory.InMemoryMemoryStore;
 import ai.newwave.agent.memory.spi.MemoryStore;
 import ai.newwave.agent.memory.tool.SaveMemoryTool;
 import ai.newwave.agent.memory.tool.SearchMemoryTool;
@@ -18,12 +17,6 @@ import org.springframework.context.annotation.Configuration;
 @ConditionalOnProperty(prefix = "agent.memory", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(MemoryProperties.class)
 public class MemoryAutoConfiguration {
-
-    @Bean
-    @ConditionalOnMissingBean
-    public MemoryStore memoryStore() {
-        return new InMemoryMemoryStore();
-    }
 
     @Bean
     @ConditionalOnMissingBean

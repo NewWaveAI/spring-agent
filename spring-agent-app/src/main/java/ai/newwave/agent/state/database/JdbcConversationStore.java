@@ -20,13 +20,14 @@ import java.util.List;
  * <pre>
  * CREATE TABLE conversation_messages (
  *     id VARCHAR(255) PRIMARY KEY,
- *     channel_id VARCHAR(255) NOT NULL,
+ *     agent_id VARCHAR(255) NOT NULL,
+ *     conversation_id VARCHAR(255) NOT NULL,
  *     role VARCHAR(50) NOT NULL,
  *     content TEXT NOT NULL,
  *     timestamp TIMESTAMP NOT NULL,
  *     sequence INT NOT NULL
  * );
- * CREATE INDEX idx_conv_channel ON conversation_messages (channel_id, sequence);
+ * CREATE INDEX idx_conv_agent_conversation ON conversation_messages (agent_id, conversation_id, sequence);
  * </pre>
  */
 public class JdbcConversationStore implements ConversationStore {
@@ -39,43 +40,43 @@ public class JdbcConversationStore implements ConversationStore {
     }
 
     @Override
-    public Mono<Void> appendMessage(String channelId, AgentMessage message) {
+    public Mono<Void> appendMessage(String agentId, String conversationId, AgentMessage message) {
         return Mono.fromRunnable(() -> {
             int sequence = jdbc.queryForObject(
-                    "SELECT COALESCE(MAX(sequence), -1) + 1 FROM conversation_messages WHERE channel_id = ?",
-                    Integer.class, channelId);
+                    "SELECT COALESCE(MAX(sequence), -1) + 1 FROM conversation_messages WHERE agent_id = ? AND conversation_id = ?",
+                    Integer.class, agentId, conversationId);
             jdbc.update(
-                    "INSERT INTO conversation_messages (id, channel_id, role, content, timestamp, sequence) VALUES (?, ?, ?, ?, ?, ?)",
-                    message.id(), channelId, message.role().name(),
+                    "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp, sequence) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    message.id(), agentId, conversationId, message.role().name(),
                     serialize(message.content()),
                     Timestamp.from(message.timestamp()), sequence);
         });
     }
 
     @Override
-    public Flux<AgentMessage> loadMessages(String channelId) {
+    public Flux<AgentMessage> loadMessages(String agentId, String conversationId) {
         return Flux.defer(() -> {
             List<AgentMessage> messages = jdbc.query(
-                    "SELECT id, role, content, timestamp FROM conversation_messages WHERE channel_id = ? ORDER BY sequence",
+                    "SELECT id, role, content, timestamp FROM conversation_messages WHERE agent_id = ? AND conversation_id = ? ORDER BY sequence",
                     (rs, rowNum) -> new AgentMessage(
                             rs.getString("id"),
                             MessageRole.valueOf(rs.getString("role")),
                             deserialize(rs.getString("content")),
                             rs.getTimestamp("timestamp").toInstant()),
-                    channelId);
+                    agentId, conversationId);
             return Flux.fromIterable(messages);
         });
     }
 
     @Override
-    public Mono<Void> replaceMessages(String channelId, List<AgentMessage> messages) {
+    public Mono<Void> replaceMessages(String agentId, String conversationId, List<AgentMessage> messages) {
         return Mono.fromRunnable(() -> {
-            jdbc.update("DELETE FROM conversation_messages WHERE channel_id = ?", channelId);
+            jdbc.update("DELETE FROM conversation_messages WHERE agent_id = ? AND conversation_id = ?", agentId, conversationId);
             for (int i = 0; i < messages.size(); i++) {
                 AgentMessage msg = messages.get(i);
                 jdbc.update(
-                        "INSERT INTO conversation_messages (id, channel_id, role, content, timestamp, sequence) VALUES (?, ?, ?, ?, ?, ?)",
-                        msg.id(), channelId, msg.role().name(),
+                        "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp, sequence) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        msg.id(), agentId, conversationId, msg.role().name(),
                         serialize(msg.content()),
                         Timestamp.from(msg.timestamp()), i);
             }
@@ -83,16 +84,16 @@ public class JdbcConversationStore implements ConversationStore {
     }
 
     @Override
-    public Mono<Void> deleteChannel(String channelId) {
+    public Mono<Void> deleteConversation(String agentId, String conversationId) {
         return Mono.fromRunnable(() ->
-                jdbc.update("DELETE FROM conversation_messages WHERE channel_id = ?", channelId));
+                jdbc.update("DELETE FROM conversation_messages WHERE agent_id = ? AND conversation_id = ?", agentId, conversationId));
     }
 
     @Override
-    public Flux<String> listChannelIds() {
+    public Flux<String> listConversationIds(String agentId) {
         return Flux.defer(() -> {
             List<String> ids = jdbc.queryForList(
-                    "SELECT DISTINCT channel_id FROM conversation_messages", String.class);
+                    "SELECT DISTINCT conversation_id FROM conversation_messages WHERE agent_id = ?", String.class, agentId);
             return Flux.fromIterable(ids);
         });
     }

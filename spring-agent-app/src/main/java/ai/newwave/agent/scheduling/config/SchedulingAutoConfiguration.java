@@ -3,10 +3,7 @@ package ai.newwave.agent.scheduling.config;
 import ai.newwave.agent.core.Agent;
 import ai.newwave.agent.scheduling.ScheduleDispatcher;
 import ai.newwave.agent.scheduling.ScheduleService;
-import ai.newwave.agent.scheduling.memory.InMemoryScheduleExecutor;
-import ai.newwave.agent.scheduling.memory.InMemoryScheduleStore;
 import ai.newwave.agent.scheduling.spi.ScheduleExecutor;
-import ai.newwave.agent.scheduling.spi.ScheduleStore;
 import ai.newwave.agent.scheduling.tool.ScheduleQueryTool;
 import ai.newwave.agent.tool.AgentTool;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -15,6 +12,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Base scheduling auto-configuration. Provides shared beans (dispatcher, service, query tool).
+ * Requires a ScheduleExecutor bean — provided by AwsSchedulingAutoConfiguration or a custom bean.
+ */
 @Configuration
 @ConditionalOnProperty(prefix = "agent.scheduling", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(SchedulingProperties.class)
@@ -22,20 +23,8 @@ public class SchedulingAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ScheduleStore scheduleStore() {
-        return new InMemoryScheduleStore();
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public ScheduleDispatcher scheduleDispatcher(Agent agent) {
-        return new ScheduleDispatcher(agent, agent.getEmitter());
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public ScheduleExecutor scheduleExecutor(ScheduleStore store, ScheduleDispatcher dispatcher) {
-        return new InMemoryScheduleExecutor(store, dispatcher);
+        return new ScheduleDispatcher(agent);
     }
 
     @Bean

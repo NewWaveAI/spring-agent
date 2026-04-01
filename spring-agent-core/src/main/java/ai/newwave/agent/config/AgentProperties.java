@@ -7,20 +7,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "agent")
 public class AgentProperties {
 
-    private String id = "default";
     private String systemPrompt = "You are a helpful assistant.";
     private ThinkingLevel thinkingLevel = ThinkingLevel.OFF;
     private ToolExecutionMode toolExecutionMode = ToolExecutionMode.PARALLEL;
     private int maxTurns = 25;
     private int maxTokens = 8192;
-
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
 
     public String getSystemPrompt() {
         return systemPrompt;
