@@ -10,7 +10,6 @@ import java.util.List;
 
 /**
  * Chains multiple AgentHooks delegates in sequence.
- * Used when both compaction and timeline hooks (or user-defined hooks) are active.
  */
 public class CompositeAgentHooks implements AgentHooks {
 
@@ -21,37 +20,37 @@ public class CompositeAgentHooks implements AgentHooks {
     }
 
     @Override
-    public Mono<BeforeToolCallResult> beforeToolCall(String toolName, ContentBlock.ToolUse toolUse) {
+    public Mono<BeforeToolCallResult> beforeToolCall(HookContext ctx, String toolName, ContentBlock.ToolUse toolUse) {
         return Flux.fromIterable(delegates)
-                .concatMap(h -> h.beforeToolCall(toolName, toolUse))
+                .concatMap(h -> h.beforeToolCall(ctx, toolName, toolUse))
                 .filter(r -> !r.proceed())
                 .next()
                 .defaultIfEmpty(BeforeToolCallResult.allow());
     }
 
     @Override
-    public Mono<AgentToolResult<?>> afterToolCall(String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
+    public Mono<AgentToolResult<?>> afterToolCall(HookContext ctx, String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
         Mono<AgentToolResult<?>> current = Mono.just(result);
         for (AgentHooks hook : delegates) {
-            current = current.flatMap(r -> hook.afterToolCall(toolName, toolUse, r));
+            current = current.flatMap(r -> hook.afterToolCall(ctx, toolName, toolUse, r));
         }
         return current;
     }
 
     @Override
-    public List<AgentMessage> transformContext(List<AgentMessage> messages) {
+    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
         List<AgentMessage> result = messages;
         for (AgentHooks hook : delegates) {
-            result = hook.transformContext(result);
+            result = hook.transformContext(ctx, result);
         }
         return result;
     }
 
     @Override
-    public List<AgentMessage> convertToLlm(List<AgentMessage> messages) {
+    public List<AgentMessage> convertToLlm(HookContext ctx, List<AgentMessage> messages) {
         List<AgentMessage> result = messages;
         for (AgentHooks hook : delegates) {
-            result = hook.convertToLlm(result);
+            result = hook.convertToLlm(ctx, result);
         }
         return result;
     }

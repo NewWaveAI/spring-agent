@@ -9,6 +9,7 @@ import java.util.List;
 
 /**
  * Lifecycle hooks for customizing agent behavior.
+ * All hooks receive a {@link HookContext} with request-scoped data (agentId, conversationId, attributes).
  */
 public interface AgentHooks {
 
@@ -45,30 +46,29 @@ public interface AgentHooks {
     /**
      * Called before a tool is executed. Can block execution.
      */
-    default Mono<BeforeToolCallResult> beforeToolCall(String toolName, ContentBlock.ToolUse toolUse) {
+    default Mono<BeforeToolCallResult> beforeToolCall(HookContext ctx, String toolName, ContentBlock.ToolUse toolUse) {
         return Mono.just(BeforeToolCallResult.allow());
     }
 
     /**
      * Called after a tool is executed. Can modify the result.
      */
-    default Mono<AgentToolResult<?>> afterToolCall(String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
+    default Mono<AgentToolResult<?>> afterToolCall(HookContext ctx, String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
         return Mono.just(result);
     }
 
     /**
      * Transform the message context before sending to the LLM.
-     * Useful for pruning or compacting conversation history.
+     * Useful for injecting dynamic prompts, pruning, or compacting conversation history.
      */
-    default List<AgentMessage> transformContext(List<AgentMessage> messages) {
+    default List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
         return messages;
     }
 
     /**
      * Convert agent messages to LLM-compatible format.
-     * By default, filters out non-standard message types.
      */
-    default List<AgentMessage> convertToLlm(List<AgentMessage> messages) {
+    default List<AgentMessage> convertToLlm(HookContext ctx, List<AgentMessage> messages) {
         return messages;
     }
 }

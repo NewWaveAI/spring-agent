@@ -1,6 +1,7 @@
 package ai.newwave.agent.memory;
 
 import ai.newwave.agent.config.AgentHooks;
+import ai.newwave.agent.config.HookContext;
 import ai.newwave.agent.model.AgentMessage;
 
 import java.util.ArrayList;
@@ -19,7 +20,7 @@ public class MemoryContextHook implements AgentHooks {
     }
 
     @Override
-    public List<AgentMessage> transformContext(List<AgentMessage> messages) {
+    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
         String summary = memoryService.summarize().block();
 
         if (summary == null || summary.isBlank()) {

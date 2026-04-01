@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.newwave.agent.config.AgentConfig;
 import ai.newwave.agent.config.AgentHooks;
 import ai.newwave.agent.config.AgentLoopConfig;
+import ai.newwave.agent.config.HookContext;
 import ai.newwave.agent.event.AgentEvent;
 import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.model.ContentBlock;
@@ -95,8 +96,9 @@ public class AgentLoop {
 
             // Build Spring AI messages from conversation state
             AgentHooks hooks = loopConfig.hooks();
-            List<AgentMessage> context = hooks.transformContext(List.copyOf(messages));
-            List<AgentMessage> llmMessages = hooks.convertToLlm(context);
+            HookContext hookCtx = new HookContext(agentId, conversationId, attributes);
+            List<AgentMessage> context = hooks.transformContext(hookCtx, List.copyOf(messages));
+            List<AgentMessage> llmMessages = hooks.convertToLlm(hookCtx, context);
 
             // Convert to Spring AI messages and call LLM
             List<Message> springMessages = toSpringMessages(llmMessages);
@@ -112,7 +114,7 @@ public class AgentLoop {
                         }
 
                         // Execute tools
-                        return executeTools(toolCalls)
+                        return executeTools(toolCalls, hookCtx)
                                 .then(Mono.defer(() -> {
                                     sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
                                     return innerLoop(turnNumber + 1);
@@ -205,24 +207,24 @@ public class AgentLoop {
     /**
      * Execute tool calls sequentially or in parallel based on config.
      */
-    private Mono<Void> executeTools(List<ContentBlock.ToolUse> toolCalls) {
+    private Mono<Void> executeTools(List<ContentBlock.ToolUse> toolCalls, HookContext hookCtx) {
         ToolExecutionMode mode = config.loopConfig().toolExecutionMode();
         AgentHooks hooks = config.loopConfig().hooks();
 
         if (mode == ToolExecutionMode.PARALLEL) {
             return Flux.fromIterable(toolCalls)
-                    .flatMap(toolUse -> executeSingleTool(toolUse, hooks))
+                    .flatMap(toolUse -> executeSingleTool(toolUse, hooks, hookCtx))
                     .then();
         } else {
             return Flux.fromIterable(toolCalls)
-                    .concatMap(toolUse -> executeSingleTool(toolUse, hooks))
+                    .concatMap(toolUse -> executeSingleTool(toolUse, hooks, hookCtx))
                     .then();
         }
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private Mono<Void> executeSingleTool(ContentBlock.ToolUse toolUse, AgentHooks hooks) {
-        return hooks.beforeToolCall(toolUse.name(), toolUse)
+    private Mono<Void> executeSingleTool(ContentBlock.ToolUse toolUse, AgentHooks hooks, HookContext hookCtx) {
+        return hooks.beforeToolCall(hookCtx, toolUse.name(), toolUse)
                 .flatMap(beforeResult -> {
                     if (!beforeResult.proceed()) {
                         String reason = beforeResult.reason() != null
@@ -257,7 +259,7 @@ public class AgentLoop {
                         log.error("Failed to deserialize tool parameters for {}", toolUse.name(), e);
                         AgentToolResult<?> errorResult = AgentToolResult.error(
                                 "Parameter deserialization failed: " + e.getMessage());
-                        return finishToolExecution(toolUse, errorResult, hooks);
+                        return finishToolExecution(toolUse, errorResult, hooks, hookCtx);
                     }
 
                     ToolCallContext context = new ToolCallContext(toolUse.id(), toolUse.name(), params, agentId, conversationId, attributes);
@@ -270,12 +272,12 @@ public class AgentLoop {
                                 log.error("Tool execution failed for {}", toolUse.name(), e);
                                 return Mono.just(AgentToolResult.error("Tool execution failed: " + e.getMessage()));
                             })
-                            .flatMap(result -> finishToolExecution(toolUse, result, hooks));
+                            .flatMap(result -> finishToolExecution(toolUse, result, hooks, hookCtx));
                 });
     }
 
-    private Mono<Void> finishToolExecution(ContentBlock.ToolUse toolUse, AgentToolResult<?> result, AgentHooks hooks) {
-        return hooks.afterToolCall(toolUse.name(), toolUse, result)
+    private Mono<Void> finishToolExecution(ContentBlock.ToolUse toolUse, AgentToolResult<?> result, AgentHooks hooks, HookContext hookCtx) {
+        return hooks.afterToolCall(hookCtx, toolUse.name(), toolUse, result)
                 .map(modifiedResult -> {
                     AgentMessage resultMessage = AgentMessage.toolResult(
                             toolUse.id(), modifiedResult.content(), modifiedResult.isError());

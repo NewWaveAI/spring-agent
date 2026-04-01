@@ -1,0 +1,70 @@
+# Changelog
+
+## [0.2.2] - 2026-04-01
+
+### Added
+- `HookContext` record — carries `agentId`, `conversationId`, and `attributes` to all hooks
+- All `AgentHooks` methods now receive `HookContext` as first parameter
+- Hooks can now access tenant/workspace context for dynamic prompt injection, scoped approvals, etc.
+
+### Changed
+- `beforeToolCall(String toolName, ToolUse toolUse)` → `beforeToolCall(HookContext ctx, String toolName, ToolUse toolUse)`
+- `afterToolCall(String toolName, ToolUse toolUse, result)` → `afterToolCall(HookContext ctx, String toolName, ToolUse toolUse, result)`
+- `transformContext(List<AgentMessage> messages)` → `transformContext(HookContext ctx, List<AgentMessage> messages)`
+- `convertToLlm(List<AgentMessage> messages)` → `convertToLlm(HookContext ctx, List<AgentMessage> messages)`
+
+## [0.2.1] - 2026-04-01
+
+### Added
+- `ToolCallContext` now includes `agentId`, `conversationId`, and `attributes` for multi-tenant tool context
+- `AgentRequest.attributes` for passing custom request-scoped data (e.g., workspaceId)
+- `HookContext` passed to all `AgentHooks` methods (`beforeToolCall`, `afterToolCall`, `transformContext`, `convertToLlm`)
+- `AgentEventType` enum for type-safe event comparison
+
+### Changed
+- `AgentHooks` methods now receive `HookContext` as first parameter
+- `Agent` redesigned as a stateless client — single `stream(AgentRequest)` method returning `Flux<AgentEvent>`
+- `agentId` is always required (no default) — typically from authenticated user
+- Removed `agent.id` from YAML configuration
+- Renamed `channelId` to `conversationId` throughout
+- Renamed `ChannelState` to `ConversationState`, `ChannelManager` to `ConversationManager`
+- `ConversationStore` methods now accept `(agentId, conversationId)` instead of single key
+- `SchedulePayload` actions now include both `agentId` and `conversationId`
+- `StreamProxyController` request now requires `agentId`
+
+### Removed
+- All in-memory store implementations (`InMemoryConversationStore`, `InMemoryTimelineStore`, `InMemoryMemoryStore`, `InMemoryScheduleStore`, `InMemoryScheduleExecutor`)
+- In-memory scheduling provider (`provider: memory`)
+- Stateful agent internals: `ConversationState`, `ConversationManager`, `AgentState`, `EventEmitter`, `AgentEventListener`, `MessageQueue`, `AgentStatus`
+- `subscribe()`, `events()`, `abort()`, `steer()`, `followUp()`, `waitForIdle()`, `reset()`, `getMessages()`, `getStatus()`, `listConversations()`, `deleteConversation()` methods from `Agent`
+- `AgentConfig.agentId` field
+
+## [0.2.0] - 2026-04-01
+
+### Added
+- Dynamic per-conversation `agentId` (hierarchy: agentId > conversationId)
+- Multi-tenant support — each user gets their own agent identity
+- `@Qualifier("anthropicChatModel")` for ChatModel bean resolution
+
+### Changed
+- Renamed `channel` to `conversation` throughout codebase (22 files)
+- `ConversationStore` methods now accept `(agentId, conversationId)`
+- Repository renamed from `pi-mono-java` to `spring-agent`
+
+### Fixed
+- `AnthropicApi.ThinkingType` removed in Spring AI 2.0.0-M4 — replaced with `thinkingEnabled()`
+
+## [0.1.0] - 2026-04-01
+
+### Added
+- Initial release
+- Stateful multi-turn conversations with streaming LLM responses (Anthropic Claude)
+- Tool execution via `AgentTool<P, D>` with parallel or sequential execution
+- Agent loop: inner loop (LLM → tool calls → recurse) + outer loop (follow-up queue drain)
+- Event system with 11 lifecycle event types via sealed interface
+- Activity timeline with auto-recording from agent events
+- Conversation compaction via LLM-based summarization
+- Event scheduling with in-memory, AWS (EventBridge + SQS + DynamoDB), and JDBC backends
+- Agent memory (cross-conversation knowledge store)
+- SSE proxy endpoint
+- Spring Boot auto-configuration

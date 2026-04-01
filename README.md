@@ -27,7 +27,7 @@ A stateless AI agent client for Java, built on [Spring Boot 4](https://spring.io
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
 </dependency>
 ```
 
@@ -551,7 +551,7 @@ Optional features: activity timeline, agent memory, event scheduling, and JDBC s
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2</version>
 </dependency>
 ```
 

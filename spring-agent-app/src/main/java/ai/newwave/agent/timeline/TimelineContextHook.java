@@ -1,6 +1,7 @@
 package ai.newwave.agent.timeline;
 
 import ai.newwave.agent.config.AgentHooks;
+import ai.newwave.agent.config.HookContext;
 import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.timeline.model.TimelineQuery;
 
@@ -22,7 +23,7 @@ public class TimelineContextHook implements AgentHooks {
     }
 
     @Override
-    public List<AgentMessage> transformContext(List<AgentMessage> messages) {
+    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
         String summary = timelineService.summarize(
                         TimelineQuery.builder().limit(maxRecentEvents).build())
                 .block();

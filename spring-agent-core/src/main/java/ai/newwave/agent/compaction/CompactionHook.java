@@ -5,6 +5,7 @@ import ai.newwave.agent.compaction.model.CompactionResult;
 import ai.newwave.agent.compaction.spi.CompactionStrategy;
 import ai.newwave.agent.compaction.spi.TokenEstimator;
 import ai.newwave.agent.config.AgentHooks;
+import ai.newwave.agent.config.HookContext;
 import ai.newwave.agent.model.AgentMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +33,7 @@ public class CompactionHook implements AgentHooks {
     }
 
     @Override
-    public List<AgentMessage> transformContext(List<AgentMessage> messages) {
+    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
         int tokenCount = tokenEstimator.estimateTokens(messages);
         if (tokenCount <= config.maxContextTokens()) {
             return messages;
