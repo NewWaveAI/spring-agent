@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2026-04-01
+
+### Removed
+- All auto-configuration classes (`AgentAutoConfiguration`, `CompactionAutoConfiguration`, `TimelineAutoConfiguration`, `MemoryAutoConfiguration`, `SchedulingAutoConfiguration`, `AwsSchedulingAutoConfiguration`)
+- All properties classes (`AgentProperties`, `CompactionProperties`, `TimelineProperties`, `MemoryProperties`, `SchedulingProperties`)
+- Spring Boot `META-INF/spring/AutoConfiguration.imports` files
+- No more YAML `agent.*` config — everything is wired explicitly in Java
+
+### Changed
+- Library is now just classes and interfaces — no Spring Boot magic
+- Users create `AgentConfig`, `Agent`, stores, hooks, and tools explicitly via `@Configuration`
+
 ## [0.2.3] - 2026-04-01
 
 ### Added
