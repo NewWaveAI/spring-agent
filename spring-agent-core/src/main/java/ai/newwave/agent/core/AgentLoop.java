@@ -33,6 +33,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -49,6 +50,7 @@ public class AgentLoop {
     private final String agentId;
     private final String conversationId;
     private final List<AgentMessage> messages;
+    private final Map<String, Object> attributes;
     private final AgentConfig config;
     private final ChatModel chatModel;
     private final Sinks.Many<AgentEvent> sink;
@@ -58,6 +60,7 @@ public class AgentLoop {
             String agentId,
             String conversationId,
             List<AgentMessage> messages,
+            Map<String, Object> attributes,
             AgentConfig config,
             ChatModel chatModel,
             Sinks.Many<AgentEvent> sink,
@@ -66,6 +69,7 @@ public class AgentLoop {
         this.agentId = agentId;
         this.conversationId = conversationId;
         this.messages = messages;
+        this.attributes = attributes != null ? attributes : Map.of();
         this.config = config;
         this.chatModel = chatModel;
         this.sink = sink;
@@ -256,7 +260,7 @@ public class AgentLoop {
                         return finishToolExecution(toolUse, errorResult, hooks);
                     }
 
-                    ToolCallContext context = new ToolCallContext(toolUse.id(), toolUse.name(), params);
+                    ToolCallContext context = new ToolCallContext(toolUse.id(), toolUse.name(), params, agentId, conversationId, attributes);
 
                     @SuppressWarnings("unchecked")
                     Mono<AgentToolResult<?>> execution = (Mono<AgentToolResult<?>>) tool.execute(context);

@@ -42,6 +42,7 @@ public class Agent {
         String agentId = request.agentId();
         String conversationId = request.conversationId();
         AgentMessage message = request.message();
+        var attributes = request.attributes();
 
         Sinks.Many<AgentEvent> sink = Sinks.many().unicast().onBackpressureBuffer();
 
@@ -59,7 +60,7 @@ public class Agent {
                     sink.tryEmitNext(new AgentEvent.AgentStart(agentId, conversationId));
 
                     AgentLoop loop = new AgentLoop(
-                            agentId, conversationId, messages,
+                            agentId, conversationId, messages, attributes,
                             config, chatModel, sink, conversationStore);
 
                     loop.run()
