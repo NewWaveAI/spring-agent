@@ -23,11 +23,26 @@ A stateless AI agent client for Java, built on [Spring Boot 4](https://spring.io
 
 # spring-agent-core
 
+## Package Structure
+
+```
+ai.newwave.agent.core           Agent, AgentRequest, AgentLoop
+ai.newwave.agent.config         AgentConfig, AgentHooks, HookContext, AgentProperties
+ai.newwave.agent.event          AgentEvent, AgentEventType
+ai.newwave.agent.tool           AgentTool, AgentToolResult, ToolCallContext
+ai.newwave.agent.model          AgentMessage, ContentBlock, ThinkingLevel, MessageRole
+ai.newwave.agent.state.spi      ConversationStore
+ai.newwave.agent.compaction     CompactionHook, CompactionStrategy, TokenEstimator
+ai.newwave.agent.proxy          StreamProxyController
+```
+
+## Installation
+
 ```xml
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3</version>
 </dependency>
 ```
 
@@ -68,6 +83,9 @@ agent:
 The agent needs a store for conversation persistence. Use the provided `JdbcConversationStore` for PostgreSQL (in `spring-agent-app`), or implement your own:
 
 ```java
+import ai.newwave.agent.state.spi.ConversationStore;
+import ai.newwave.agent.state.database.JdbcConversationStore;  // from spring-agent-app
+
 @Bean
 public ConversationStore conversationStore(JdbcTemplate jdbc) {
     return new JdbcConversationStore(jdbc);
@@ -77,6 +95,10 @@ public ConversationStore conversationStore(JdbcTemplate jdbc) {
 ### 3. Build a controller
 
 ```java
+import ai.newwave.agent.core.Agent;
+import ai.newwave.agent.core.AgentRequest;
+import ai.newwave.agent.event.AgentEvent;
+
 @RestController
 public class ChatController {
     private final Agent agent;
@@ -212,6 +234,10 @@ conversationStore.deleteConversation(agentId, convId).block();
 Tools let the agent take actions. Implement `AgentTool<P, D>` and register as a `@Component` for auto-discovery. `P` is the parameter type, `D` is the result detail type.
 
 ```java
+import ai.newwave.agent.tool.AgentTool;
+import ai.newwave.agent.tool.AgentToolResult;
+import ai.newwave.agent.tool.ToolCallContext;
+
 @Component
 public class WeatherTool implements AgentTool<WeatherTool.Params, String> {
 
@@ -337,11 +363,14 @@ public Flux<ServerSentEvent<AgentEvent>> chat(@RequestBody ChatRequest req) {
 Customize agent behavior by implementing `AgentHooks` and registering as a `@Component`. Multiple hooks are automatically composed via `CompositeAgentHooks`.
 
 ```java
+import ai.newwave.agent.config.AgentHooks;
+import ai.newwave.agent.config.HookContext;
+
 @Component
 public class MyHooks implements AgentHooks {
 
     @Override
-    public Mono<BeforeToolCallResult> beforeToolCall(String toolName, ContentBlock.ToolUse toolUse) {
+    public Mono<BeforeToolCallResult> beforeToolCall(HookContext ctx, String toolName, ContentBlock.ToolUse toolUse) {
         if (toolName.equals("dangerous_tool")) {
             return Mono.just(BeforeToolCallResult.block("Requires approval"));
         }
@@ -349,17 +378,18 @@ public class MyHooks implements AgentHooks {
     }
 
     @Override
-    public Mono<AgentToolResult<?>> afterToolCall(String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
+    public Mono<AgentToolResult<?>> afterToolCall(HookContext ctx, String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
         return Mono.just(result);  // modify or replace tool results
     }
 
     @Override
-    public List<AgentMessage> transformContext(List<AgentMessage> messages) {
-        return messages;  // modify messages before each LLM call
+    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
+        // ctx.agentId(), ctx.conversationId(), ctx.attributes() available here
+        return messages;  // inject context, prune messages, compact
     }
 
     @Override
-    public List<AgentMessage> convertToLlm(List<AgentMessage> messages) {
+    public List<AgentMessage> convertToLlm(HookContext ctx, List<AgentMessage> messages) {
         return messages;  // convert to LLM-compatible format
     }
 }
@@ -547,11 +577,31 @@ Compaction beans (when `agent.compaction.enabled=true`):
 
 Optional features: activity timeline, agent memory, event scheduling, and JDBC store implementations.
 
+## Package Structure
+
+```
+ai.newwave.agent.state.database     JdbcConversationStore
+ai.newwave.agent.timeline           TimelineService, TimelineRecorder, TimelineContextHook
+ai.newwave.agent.timeline.model     TimelineEvent, TimelineQuery, TimelineActor
+ai.newwave.agent.timeline.spi       TimelineStore
+ai.newwave.agent.timeline.database  JdbcTimelineStore
+ai.newwave.agent.memory             MemoryService, MemoryContextHook
+ai.newwave.agent.memory.model       Memory
+ai.newwave.agent.memory.spi         MemoryStore
+ai.newwave.agent.memory.database    JdbcMemoryStore
+ai.newwave.agent.scheduling         ScheduleService, ScheduleDispatcher
+ai.newwave.agent.scheduling.model   ScheduledEvent, SchedulePayload, ScheduleType, RetryConfig
+ai.newwave.agent.scheduling.spi     ScheduleStore, ScheduleExecutor
+ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsScheduleListener
+```
+
+## Installation
+
 ```xml
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>0.2.2</version>
+    <version>0.2.3</version>
 </dependency>
 ```
 

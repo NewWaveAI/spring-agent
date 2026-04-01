@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.3] - 2026-04-01
+
+### Added
+- Auto-generated `parameterSchema()` from record types — no more manual JSON schema
+- `@Description` annotation for tool parameter fields
+- Package structure documentation in README with import paths on all code examples
+
+### Changed
+- `AgentTool.parameterSchema()` now has a default implementation that uses reflection
+- All record components are marked as required by default in generated schema
+
 ## [0.2.2] - 2026-04-01
 
 ### Added
