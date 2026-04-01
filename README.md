@@ -1,38 +1,51 @@
 # spring-agent
 
-A stateful AI agent framework for Java, built on [Spring Boot 4.0](https://spring.io/projects/spring-boot) and [Spring AI 2.0](https://spring.io/projects/spring-ai). Inspired by [@mariozechner/spring-agent-core](https://github.com/badlogic/pi-mono/tree/main/packages/agent).
+[![Maven Central](https://img.shields.io/maven-central/v/ai.new-wave/spring-agent-core)](https://central.sonatype.com/artifact/ai.new-wave/spring-agent-core)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-## Features
+A stateful AI agent framework for Java, built on [Spring Boot 4](https://spring.io/projects/spring-boot) and [Spring AI 2](https://spring.io/projects/spring-ai).
 
-- **Stateful multi-turn conversations** with streaming LLM responses (Anthropic Claude)
-- **Tool execution** — generic `AgentTool<P, D>` interface with sequential or parallel execution
-- **Agent loop** — inner loop (LLM -> tool calls -> recurse) + outer loop (follow-up queue drain)
-- **Steering & follow-up queues** — inject messages mid-turn or post-completion
-- **Event system** — 11 lifecycle event types via sealed interface, callback + reactive (`Flux`) subscriptions
-- **Activity timeline** — persistent "what happened" feed, auto-recorded from agent events, agent-queryable via tool
-- **Conversation compaction** — LLM-based context summarization when token limits are approached
-- **Event scheduling** — immediate, one-shot, and periodic (cron) with pluggable backends (in-memory, AWS, JDBC)
-- **SSE proxy endpoint** — opt-in `POST /api/stream` returning `Flux<ServerSentEvent<AgentEvent>>`
+## Modules
+
+| Module | Description |
+|--------|-------------|
+| `spring-agent-core` | Agent engine, tools, events, hooks, compaction, SSE proxy |
+| `spring-agent-app` | Activity timeline, agent memory, event scheduling |
 
 ## Requirements
 
 - Java 21+
-- Spring Boot 4.0.0-M1+
-- Spring AI 2.0.0-M1+
+- Spring Boot 4.0+
+- Spring AI 2.0+
 
-## Quick Start
+---
 
-Add the dependency to your Spring Boot application:
+# spring-agent-core
+
+The core agent engine. Provides multi-turn conversations with streaming responses, tool execution, lifecycle events, hooks, conversation compaction, and an optional SSE proxy endpoint.
 
 ```xml
 <dependency>
     <groupId>ai.new-wave</groupId>
-    <artifactId>spring-agent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <artifactId>spring-agent-core</artifactId>
+    <version>0.1.0</version>
 </dependency>
 ```
 
-Configure in your `application.yml`:
+You also need the Spring AI milestone repository:
+
+```xml
+<repositories>
+    <repository>
+        <id>spring-milestones</id>
+        <url>https://repo.spring.io/milestone</url>
+    </repository>
+</repositories>
+```
+
+## Quick Start
+
+Configure in `application.yml`:
 
 ```yaml
 spring:
@@ -46,109 +59,113 @@ spring:
 
 agent:
   system-prompt: "You are a helpful assistant."
-  thinking-level: off          # off | low | medium | high | xhigh
-  tool-execution-mode: parallel # parallel | sequential
+  thinking-level: off
+  tool-execution-mode: parallel
   max-turns: 25
 ```
 
----
-
-## Core Concepts
-
-### Agent
-
-The `Agent` class is the main public API. It manages the conversation lifecycle, tool execution, message queuing, and event streaming.
+Inject the auto-configured `Agent` bean:
 
 ```java
 @Service
-public class MyService {
+public class ChatService {
     private final Agent agent;
 
-    public MyService(Agent agent) {
+    public ChatService(Agent agent) {
         this.agent = agent;
     }
 
     public void chat(String userMessage) {
-        // Subscribe to streaming events
         agent.subscribe(event -> {
             if (event instanceof AgentEvent.MessageUpdate update) {
                 System.out.print(update.delta());
             }
         });
 
-        // Send a prompt (blocks until agent completes)
         agent.prompt(userMessage).block();
-
-        // Or use reactively
-        agent.prompt(userMessage).subscribe();
-        agent.waitForIdle().block();
     }
 }
 ```
 
-**Key methods:**
+## Configuration
 
-| Method | Description |
-|--------|-------------|
-| `prompt(message)` | Start a new conversation turn |
-| `continueConversation()` | Resume from current transcript |
-| `steer(message)` | Inject a message mid-turn (next loop iteration) |
-| `followUp(message)` | Queue a message for after the current run |
-| `subscribe(listener)` | Listen to lifecycle events (returns `Disposable`) |
-| `events()` | Get a `Flux<AgentEvent>` reactive stream |
-| `abort()` | Cancel the current run |
-| `waitForIdle()` | `Mono<Void>` that completes when agent finishes |
-| `reset()` | Clear all state, messages, and queues |
+Prefix: `agent.*`
 
-### Agent Loop
+| Property | Default | Description |
+|----------|---------|-------------|
+| `id` | `"default"` | Agent identifier |
+| `system-prompt` | `"You are a helpful assistant."` | System prompt (can be a resource path like `classpath:prompt.txt`) |
+| `thinking-level` | `off` | Extended thinking: `off`, `low`, `medium`, `high`, `xhigh` |
+| `tool-execution-mode` | `parallel` | `parallel` or `sequential` |
+| `max-turns` | `25` | Max LLM turns per run |
+| `max-tokens` | `8192` | Max output tokens per LLM call |
 
-The agent loop has two layers:
+### Thinking Levels
 
-```
-outerLoop:
-  innerLoop:
-    1. Drain steering queue into messages
-    2. Apply transformContext hook (compaction, timeline injection)
-    3. Stream LLM response (emit message_start/update/end events)
-    4. Extract tool calls from response
-    5. If no tool calls -> exit innerLoop
-    6. Execute tools (parallel or sequential)
-       - beforeToolCall hook (can block)
-       - Execute tool
-       - afterToolCall hook (can modify result)
-    7. Recurse innerLoop
-  Check follow-up queue
-  Has follow-up? -> add to messages, recurse outerLoop
-  Done -> emit agent_end
-```
+| Level | Budget Tokens | Max Completion Tokens |
+|-------|--------------|----------------------|
+| `off` | 0 | 0 |
+| `low` | 1,024 | 4,096 |
+| `medium` | 4,096 | 8,192 |
+| `high` | 16,384 | 32,768 |
+| `xhigh` | 65,536 | 131,072 |
 
-### Events
+## Agent API
 
-All agent lifecycle events are modeled as a sealed interface for exhaustive pattern matching:
+The `Agent` class is the main entry point. All methods have an overload that accepts a `channelId` for multi-channel support, and a default-channel variant.
+
+### Core Operations
 
 ```java
-agent.subscribe(event -> switch (event) {
-    case AgentEvent.AgentStart e      -> log.info("Agent started");
-    case AgentEvent.MessageUpdate e   -> System.out.print(e.delta());
-    case AgentEvent.ToolExecutionEnd e -> log.info("Tool {} completed", e.toolUse().name());
-    case AgentEvent.ScheduleFired e   -> log.info("Schedule {} fired", e.scheduleId());
-    // ... 11 event types total
-    default -> {}
-});
+// Start a new conversation turn
+agent.prompt("Hello").block();
+agent.prompt("Hello", "channel-1").block();
+
+// Resume from current transcript
+agent.continueConversation().block();
+
+// Inject a message mid-turn (picked up at next loop iteration)
+agent.steer("Also check the error logs");
+
+// Queue a message for after the current run completes
+agent.followUp("Summarize what you found");
 ```
 
-Events can also be consumed as a reactive stream:
+### Event Subscription
 
 ```java
+// Callback-based
+Disposable sub = agent.subscribe(event -> { /* handle */ });
+
+// Reactive stream
 agent.events()
     .filter(e -> e instanceof AgentEvent.MessageUpdate)
-    .map(e -> ((AgentEvent.MessageUpdate) e).delta())
-    .subscribe(System.out::print);
+    .subscribe(e -> System.out.print(((AgentEvent.MessageUpdate) e).delta()));
+
+// Per-channel stream
+agent.events("channel-1").subscribe(/* ... */);
 ```
 
-### Tools
+### Control
 
-Implement `AgentTool<P, D>` with typed parameters and results. Tools annotated with `@Component` are auto-discovered.
+```java
+agent.abort();                     // Cancel the current run
+agent.waitForIdle().block();       // Block until agent finishes
+agent.reset();                     // Clear all state
+```
+
+### Channel Management
+
+```java
+List<String> channels = agent.listChannels();
+List<AgentMessage> msgs = agent.getMessages("channel-1");
+AgentStatus status = agent.getStatus("channel-1");
+agent.deleteChannel("channel-1");
+```
+
+## Tools
+
+Implement `AgentTool<P, D>` and annotate with `@Component` for auto-discovery. `P` is the parameter type, `D` is the result detail type.
 
 ```java
 @Component
@@ -163,8 +180,7 @@ public class WeatherTool implements AgentTool<WeatherTool.Params, String> {
 
     @Override
     public JsonNode parameterSchema() {
-        ObjectMapper mapper = new ObjectMapper();
-        ObjectNode schema = mapper.createObjectNode();
+        ObjectNode schema = new ObjectMapper().createObjectNode();
         schema.put("type", "object");
         schema.putObject("properties")
               .putObject("location").put("type", "string");
@@ -180,9 +196,46 @@ public class WeatherTool implements AgentTool<WeatherTool.Params, String> {
 }
 ```
 
-### Hooks
+### AgentToolResult Factory Methods
 
-Customize agent behavior via `AgentHooks`:
+```java
+AgentToolResult.success("result text")            // Text-only success
+AgentToolResult.success("result text", details)    // Success with typed details
+AgentToolResult.error("something went wrong")      // Error result
+AgentToolResult.of(List.of(contentBlocks))          // Custom content blocks
+```
+
+## Events
+
+All agent lifecycle events are modeled as a sealed interface `AgentEvent`. Every event includes `timestamp()`, `type()`, `agentId()`, and `channelId()`.
+
+| Event | Key Fields | Description |
+|-------|-----------|-------------|
+| `AgentStart` | | Agent execution began |
+| `AgentEnd` | `error` | Agent completed (null error = success) |
+| `TurnStart` | `turnNumber` | LLM turn began |
+| `TurnEnd` | `turnNumber` | LLM turn ended |
+| `MessageStart` | `message` | Assistant message began |
+| `MessageUpdate` | `delta` | Streaming text chunk |
+| `MessageEnd` | `message` | Assistant message completed |
+| `ToolExecutionStart` | `toolUse` | Tool invocation began |
+| `ToolExecutionUpdate` | `toolUse`, `update` | Tool progress update |
+| `ToolExecutionEnd` | `toolUse`, `result` | Tool invocation completed |
+| `ScheduleFired` | `scheduleId`, `scheduleType`, `metadata` | Scheduled event fired |
+
+```java
+agent.subscribe(event -> switch (event) {
+    case AgentEvent.AgentStart e       -> log.info("Started");
+    case AgentEvent.MessageUpdate e    -> System.out.print(e.delta());
+    case AgentEvent.ToolExecutionEnd e -> log.info("Tool {} done", e.toolUse().name());
+    case AgentEvent.AgentEnd e         -> log.info("Done (error={})", e.error());
+    default -> {}
+});
+```
+
+## Hooks
+
+Customize agent behavior by implementing `AgentHooks` and registering as a `@Component`. Multiple hooks are automatically composed via `CompositeAgentHooks` (first registered = first executed).
 
 ```java
 @Component
@@ -190,57 +243,220 @@ public class MyHooks implements AgentHooks {
 
     @Override
     public Mono<BeforeToolCallResult> beforeToolCall(String toolName, ContentBlock.ToolUse toolUse) {
+        // Block or allow tool execution
         if (toolName.equals("dangerous_tool")) {
-            return Mono.just(BeforeToolCallResult.block("Tool requires approval"));
+            return Mono.just(BeforeToolCallResult.block("Requires approval"));
         }
         return Mono.just(BeforeToolCallResult.allow());
     }
 
     @Override
+    public Mono<AgentToolResult<?>> afterToolCall(String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
+        // Modify or replace tool results
+        return Mono.just(result);
+    }
+
+    @Override
     public List<AgentMessage> transformContext(List<AgentMessage> messages) {
-        // Prune, compact, or inject context before each LLM call
+        // Modify messages before each LLM call (e.g., inject context, prune)
+        return messages;
+    }
+
+    @Override
+    public List<AgentMessage> convertToLlm(List<AgentMessage> messages) {
+        // Convert messages to LLM-compatible format
         return messages;
     }
 }
 ```
 
-Multiple hooks are automatically composed via `CompositeAgentHooks` (first registered = first executed).
+## Message Model
+
+### AgentMessage
+
+```java
+AgentMessage.user("Hello")                                          // User message
+AgentMessage.assistant(List.of(new ContentBlock.Text("Hi")))       // Assistant message
+AgentMessage.toolResult(toolUseId, List.of(blocks), false)         // Tool result
+```
+
+### ContentBlock (Sealed Interface)
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `Text` | `text` | Plain text |
+| `ToolUse` | `id`, `name`, `input` (JsonNode) | Tool invocation |
+| `ToolResult` | `toolUseId`, `content`, `isError` | Tool response |
+| `Thinking` | `thinking` | Extended thinking block |
+
+## Conversation Compaction
+
+Automatically summarizes old messages when context grows too large, using the LLM itself. Enabled via configuration.
+
+```yaml
+agent:
+  compaction:
+    enabled: true
+    max-context-tokens: 100000
+    preserve-recent-count: 10
+    max-summary-tokens: 2000
+    preserve-tool-results: true
+```
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `enabled` | `false` | Enable compaction |
+| `max-context-tokens` | `100000` | Trigger compaction above this token estimate |
+| `preserve-recent-count` | `10` | Keep last N messages intact |
+| `max-summary-tokens` | `2000` | Max tokens for the summary |
+| `preserve-tool-results` | `true` | Include tool results in the summary |
+
+**How it works:** Before each LLM call, `CompactionHook` estimates the token count. If it exceeds `max-context-tokens`, older messages are sent to the LLM for summarization. The summary replaces them as a `[Conversation Summary]` user message. Recent messages are kept intact.
+
+### Customization
+
+Override the default token estimator or compaction strategy by providing your own bean:
+
+```java
+// Custom token estimator (default: text.length() / 4)
+@Bean
+public TokenEstimator tokenEstimator() {
+    return new MyTikTokenEstimator();
+}
+
+// Custom compaction strategy (default: LLM-based summarization)
+@Bean
+public CompactionStrategy compactionStrategy() {
+    return new MyCustomStrategy();
+}
+```
+
+## Conversation Persistence
+
+By default, messages are stored in memory (`InMemoryConversationStore`). For production, provide a `ConversationStore` bean:
+
+```java
+@Bean
+public ConversationStore conversationStore(JdbcTemplate jdbc) {
+    return new MyJdbcConversationStore(jdbc);
+}
+```
+
+The `ConversationStore` interface:
+
+```java
+public interface ConversationStore {
+    Mono<Void> appendMessage(String channelId, AgentMessage message);
+    Flux<AgentMessage> loadMessages(String channelId);
+    Mono<Void> replaceMessages(String channelId, List<AgentMessage> messages);
+    Mono<Void> deleteChannel(String channelId);
+    Flux<String> listChannelIds();
+}
+```
+
+## SSE Proxy
+
+Opt-in HTTP endpoint that streams agent events as Server-Sent Events for web clients.
+
+```yaml
+agent:
+  proxy:
+    enabled: true
+```
+
+```
+POST /api/stream
+Content-Type: application/json
+
+{"message": "Hello, agent!"}
+```
+
+Returns `text/event-stream`:
+
+```
+event: message_update
+data: {"type":"message_update","timestamp":"...","delta":"Hello"}
+
+event: agent_end
+data: {"type":"agent_end","timestamp":"...","error":null}
+```
+
+## Auto-Configuration
+
+`spring-agent-core` registers the following beans via `AgentAutoConfiguration` (all use `@ConditionalOnMissingBean`):
+
+| Bean | Default |
+|------|---------|
+| `AgentHooks` | Composite of all registered hooks |
+| `ConversationStore` | `InMemoryConversationStore` |
+| `ChannelManager` | Default (backed by conversation store) |
+| `AgentConfig` | Built from `AgentProperties` + discovered tools + hooks |
+| `Agent` | Main agent instance |
+
+Compaction beans (when `agent.compaction.enabled=true`):
+
+| Bean | Default |
+|------|---------|
+| `TokenEstimator` | `SimpleTokenEstimator` (length / 4) |
+| `CompactionConfig` | Built from `CompactionProperties` |
+| `CompactionStrategy` | `LlmCompactionStrategy` |
+| `CompactionHook` | Registered as `AgentHooks` |
 
 ---
 
+# spring-agent-app
+
+Optional application-layer features: activity timeline, agent memory, and event scheduling. Requires `spring-agent-core`.
+
+```xml
+<dependency>
+    <groupId>ai.new-wave</groupId>
+    <artifactId>spring-agent-app</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
 ## Activity Timeline
 
-Records agent lifecycle events as a queryable activity feed. The agent can reference recent activity for situational awareness.
+Persistent "what happened" feed, automatically recorded from agent events. The agent can reference recent activity for situational awareness and query the timeline via a built-in tool.
 
 ```yaml
 agent:
   timeline:
     enabled: true
-    max-store-size: 10000                   # max events in memory (default)
-    max-recent-events-for-context: 20       # injected into LLM context
-    context-injection-enabled: true         # auto-prepend timeline to context
-    query-tool-enabled: true                # agent can query timeline via tool
+    max-store-size: 10000
+    max-recent-events-for-context: 20
+    context-injection-enabled: true
+    query-tool-enabled: true
 ```
 
-### What gets recorded
+| Property | Default | Description |
+|----------|---------|-------------|
+| `enabled` | `false` | Enable timeline |
+| `max-store-size` | `10000` | Max events in the in-memory store |
+| `max-recent-events-for-context` | `20` | Number of events injected into LLM context |
+| `context-injection-enabled` | `true` | Auto-prepend recent timeline to LLM context |
+| `query-tool-enabled` | `true` | Register `query_timeline` tool for the agent |
 
-The `TimelineRecorder` automatically converts agent events to timeline entries:
+### What Gets Recorded
 
-| Agent Event | Timeline Entry |
-|-------------|---------------|
-| `AgentStart` | "Agent started" |
-| `AgentEnd` | "Agent completed" or "Agent ended with error: ..." |
-| `ToolExecutionStart` | "Started executing tool 'search'" |
-| `ToolExecutionEnd` | "Executed tool 'search'" |
-| `ScheduleFired` | "Schedule 'daily-report' fired" |
-| `TurnStart` | "Turn 3 started" |
-| `MessageEnd` | "Assistant message completed" |
+`TimelineRecorder` automatically subscribes to agent events and converts them to timeline entries:
 
-High-frequency events (`MessageUpdate`, `MessageStart`) are skipped to avoid noise.
+| Agent Event | Timeline Event Type | Example Summary |
+|-------------|-------------------|-----------------|
+| `AgentStart` | `agent_started` | "Agent started" |
+| `AgentEnd` | `agent_ended` | "Agent completed" / "Agent ended with error: ..." |
+| `ToolExecutionStart` | `tool_execution_started` | "Started executing tool 'search'" |
+| `ToolExecutionEnd` | `tool_executed` | "Executed tool 'search'" |
+| `ScheduleFired` | `schedule_fired` | "Schedule 'daily-report' fired" |
+| `TurnStart` | `turn_started` | "Turn 3 started" |
+| `MessageEnd` | `message_completed` | "Assistant message completed" |
 
-### Custom events
+High-frequency events (`MessageUpdate`, `MessageStart`, `TurnEnd`, `ToolExecutionUpdate`) are skipped.
 
-Record your own events from application code:
+### Custom Events
+
+Record your own events:
 
 ```java
 @Service
@@ -257,17 +473,26 @@ public class MyService {
 }
 ```
 
-### Agent querying
+### Querying
 
-The agent can use the built-in `query_timeline` tool to ask "what happened recently?" This is registered automatically when `query-tool-enabled: true`.
+The agent can use the built-in `query_timeline` tool to ask about recent activity. You can also query programmatically:
 
-### Context injection
+```java
+timelineService.query(TimelineQuery.builder()
+    .eventTypes(List.of("tool_executed"))
+    .since(Instant.now().minus(Duration.ofHours(1)))
+    .limit(10)
+    .build()
+).subscribe(event -> log.info("{}: {}", event.eventType(), event.summary()));
+```
 
-When `context-injection-enabled: true`, recent timeline events are prepended to the LLM context as an `[Activity Timeline]` message before each call, giving the agent passive situational awareness.
+### Context Injection
 
-### JDBC backend
+When `context-injection-enabled: true`, recent timeline events are prepended to the LLM context as an `[Activity Timeline]` user message before each call, giving the agent passive situational awareness.
 
-For production persistence, add `spring-boot-starter-data-jdbc` to your app and provide a `JdbcTimelineStore` bean:
+### Persistence
+
+By default, events are stored in memory (`InMemoryTimelineStore`). For production, provide a `TimelineStore` bean:
 
 ```java
 @Bean
@@ -294,58 +519,78 @@ CREATE INDEX idx_timeline_type ON timeline_events (event_type);
 CREATE INDEX idx_timeline_agent ON timeline_events (agent_id);
 ```
 
----
+## Agent Memory
 
-## Conversation Compaction
-
-Automatically summarizes old messages when context grows too large, using the LLM itself.
+Durable cross-channel knowledge store. The agent can save facts and search them across all conversations using built-in tools (`save_memory`, `search_memory`).
 
 ```yaml
 agent:
-  compaction:
+  memory:
     enabled: true
-    max-context-tokens: 100000     # trigger compaction above this
-    preserve-recent-count: 10      # keep last N messages intact
-    max-summary-tokens: 2000       # max tokens for the summary
-    preserve-tool-results: true    # include tool results in summary
+    context-injection-enabled: true
+    save-tool-enabled: true
+    search-tool-enabled: true
 ```
 
-### How it works
+| Property | Default | Description |
+|----------|---------|-------------|
+| `enabled` | `false` | Enable memory |
+| `context-injection-enabled` | `true` | Auto-inject all memories into LLM context |
+| `save-tool-enabled` | `true` | Register `save_memory` tool |
+| `search-tool-enabled` | `true` | Register `search_memory` tool |
 
-1. Before each LLM call, `CompactionHook.transformContext()` estimates the token count
-2. If tokens exceed `max-context-tokens`, it splits messages:
-   - **Older messages** (before last N) -> sent to LLM for summarization
-   - **Recent messages** (last N) -> kept intact
-3. The summary replaces the older messages as a `[Conversation Summary]` user message
-4. The LLM sees: `[summary] + [recent messages]` instead of the full history
+### How It Works
 
-### Custom token estimator
-
-The default `SimpleTokenEstimator` uses `text.length() / 4`. Override with your own:
+Memories are key-value entries with tags:
 
 ```java
-@Bean
-public TokenEstimator tokenEstimator() {
-    return new MyTikTokenEstimator(); // your implementation
+@Service
+public class MyService {
+    private final MemoryService memoryService;
+
+    public void remember() {
+        // Save a memory
+        memoryService.save(
+            "api-rotation-schedule",
+            "API keys rotate every 90 days, next rotation: 2026-07-01",
+            Set.of("ops", "api")
+        ).block();
+
+        // Search by tags
+        memoryService.search(Set.of("ops")).subscribe(memory ->
+            log.info("{}: {}", memory.key(), memory.content())
+        );
+
+        // Get all memories
+        memoryService.listAll().subscribe(/* ... */);
+
+        // Delete
+        memoryService.delete("api-rotation-schedule").block();
+    }
 }
 ```
 
-### Custom compaction strategy
+When `context-injection-enabled: true`, all stored memories are prepended to the LLM context as an `[Agent Memory]` message.
 
-Replace the LLM-based strategy entirely:
+### Built-in Tools
+
+- **`save_memory`** — Parameters: `key` (string), `content` (string), `tags` (array of strings)
+- **`search_memory`** — Parameters: `tags` (array of strings). Returns memories matching any tag, or all memories if no tags provided.
+
+### Persistence
+
+By default, memories are stored in memory (`InMemoryMemoryStore`). For production, provide a `MemoryStore` bean:
 
 ```java
 @Bean
-public CompactionStrategy compactionStrategy() {
-    return new MyCustomCompactionStrategy();
+public MemoryStore memoryStore(JdbcTemplate jdbc) {
+    return new JdbcMemoryStore(jdbc);
 }
 ```
-
----
 
 ## Event Scheduling
 
-Schedule agent actions (prompt, steer, follow-up) for later execution. Three backends available.
+Schedule agent actions (prompt, steer, follow-up) for later execution. Supports immediate, one-shot, and periodic schedules.
 
 ```yaml
 agent:
@@ -354,7 +599,12 @@ agent:
     provider: memory  # memory | aws | database
 ```
 
-### Schedule types
+| Property | Default | Description |
+|----------|---------|-------------|
+| `enabled` | `false` | Enable scheduling |
+| `provider` | `"memory"` | Backend: `memory`, `aws`, or `database` |
+
+### Schedule Types
 
 | Type | Expression | Description |
 |------|-----------|-------------|
@@ -362,21 +612,14 @@ agent:
 | `ONE_SHOT` | ISO-8601 timestamp | Fire once at a specific time |
 | `PERIODIC` | Cron or ISO duration | Fire on a recurring schedule |
 
-### Payload types
+### Payload Types
 
 Each schedule triggers an agent action:
 
 ```java
-// Prompt the agent
 new SchedulePayload.PromptAction("default", "Generate the daily report")
-
-// Steer mid-conversation
 new SchedulePayload.SteerAction("default", "Also check the error logs")
-
-// Follow up after completion
 new SchedulePayload.FollowUpAction("default", "Summarize what you found")
-
-// Custom action
 new SchedulePayload.CustomAction("webhook", Map.of("url", "https://..."))
 ```
 
@@ -390,20 +633,20 @@ public class ReminderService {
     // One-shot: fire at a specific time
     public void scheduleReminder(String message, Instant when) {
         scheduleService.create(ScheduledEvent.builder()
-                .type(ScheduleType.ONE_SHOT)
-                .scheduleExpression(when.toString())
-                .payload(new SchedulePayload.PromptAction("default", message))
-                .build()
+            .type(ScheduleType.ONE_SHOT)
+            .scheduleExpression(when.toString())
+            .payload(new SchedulePayload.PromptAction("default", message))
+            .build()
         ).block();
     }
 
     // Periodic: fire every 5 minutes
     public void schedulePeriodicCheck() {
         scheduleService.create(ScheduledEvent.builder()
-                .type(ScheduleType.PERIODIC)
-                .scheduleExpression("PT5M")  // ISO duration
-                .payload(new SchedulePayload.PromptAction("default", "Check system health"))
-                .build()
+            .type(ScheduleType.PERIODIC)
+            .scheduleExpression("PT5M")
+            .payload(new SchedulePayload.PromptAction("default", "Check system health"))
+            .build()
         ).block();
     }
 
@@ -411,45 +654,62 @@ public class ReminderService {
     public void cancel(String scheduleId) {
         scheduleService.cancel(scheduleId).block();
     }
+
+    // List active
+    public void listActive() {
+        scheduleService.listActive().subscribe(e ->
+            log.info("{}: {} (next: {})", e.id(), e.type(), e.nextFireTime())
+        );
+    }
 }
 ```
+
+### Built-in Tool
+
+The `query_schedules` tool lets the agent list, get, and cancel schedules. Actions: `list`, `get`, `cancel`.
 
 ### Backend: In-Memory (dev/test)
 
 ```yaml
 agent:
   scheduling:
-    enabled: true
     provider: memory
 ```
 
-Uses `ScheduledExecutorService` in-process. Data lost on restart. Single instance only.
+Uses `ScheduledExecutorService`. Data lost on restart. Single instance only.
 
 ### Backend: AWS (production)
 
-Uses EventBridge Scheduler for timing, SQS for delivery, DynamoDB for persistence and distributed locking. Safe for ECS auto-scale.
+Uses EventBridge Scheduler for timing, SQS for delivery, DynamoDB for persistence and distributed locking. Safe for multi-instance deployments.
 
 ```yaml
 agent:
   scheduling:
-    enabled: true
     provider: aws
     aws:
       sqs-target-arn: arn:aws:sqs:us-east-1:123456789:spring-agent-schedules
       sqs-queue-url: https://sqs.us-east-1.amazonaws.com/123456789/spring-agent-schedules
       role-arn: arn:aws:iam::123456789:role/eventbridge-sqs-role
-      schedule-group: spring-agent          # EventBridge schedule group
-      dynamodb-table: spring-agent-schedules # DynamoDB table name
-      lock-ttl: PT30S                    # distributed lock TTL
-      poll-interval: PT5S                # SQS polling interval
+      schedule-group: spring-agent
+      dynamodb-table: spring-agent-schedules
+      lock-ttl: PT30S
+      poll-interval: PT5S
 ```
+
+| Property | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `sqs-target-arn` | | Yes | SQS queue ARN for EventBridge target |
+| `sqs-queue-url` | | Yes | SQS queue URL for polling |
+| `role-arn` | | Yes | IAM role for EventBridge -> SQS |
+| `schedule-group` | `"spring-agent"` | No | EventBridge schedule group name |
+| `dynamodb-table` | `"spring-agent-schedules"` | No | DynamoDB table name |
+| `lock-ttl` | `PT30S` | No | Distributed lock TTL |
+| `poll-interval` | `PT5S` | No | SQS polling interval |
 
 **Required AWS resources:**
 
 1. **SQS Queue** — receives messages from EventBridge when schedules fire
-2. **DynamoDB Table** — persists schedule metadata and distributed locks
-   - Partition key: `id` (String)
-   - GSI: `enabled-nextFireTime-index` (enabled=PK, nextFireTime=SK)
+2. **DynamoDB Table** — persists schedule metadata and distributed locks (partition key: `id`, GSI: `enabled-nextFireTime-index`)
 3. **IAM Role** — allows EventBridge Scheduler to send messages to SQS
 4. **EventBridge Schedule Group** — groups all spring-agent schedules
 
@@ -470,31 +730,9 @@ agent:
 </dependency>
 ```
 
-**How it works:**
-
-```
-Your app                    AWS
-  |
-  |-- create schedule -->  EventBridge Scheduler (creates rule)
-  |                        DynamoDB (persists metadata)
-  |
-  |                        [time passes...]
-  |
-  |                        EventBridge fires --> SQS queue
-  |                                               |
-  |<-- SqsScheduleListener polls SQS ------------|
-  |
-  |-- tryAcquireLock (DynamoDB conditional write)
-  |   (only one ECS instance wins)
-  |
-  |-- dispatch to agent (prompt/steer/followUp)
-  |-- releaseLock
-  |-- delete SQS message
-```
-
 ### Backend: Database (JDBC)
 
-For setups with a shared database but no AWS. Provide a `JdbcScheduleStore` bean and a polling executor.
+For setups with a shared database but no AWS. Provide a `JdbcScheduleStore` bean.
 
 Required table:
 
@@ -519,149 +757,38 @@ Distributed safety: `tryAcquireLock` uses `UPDATE ... WHERE lock_owner IS NULL O
 
 ---
 
-## SSE Proxy
+# Extension Points
 
-Opt-in HTTP endpoint for streaming agent events via Server-Sent Events:
+All SPIs use `@ConditionalOnMissingBean` — provide your own bean to override the default.
 
-```yaml
-agent:
-  proxy:
-    enabled: true
-```
-
-```
-POST /api/stream
-Content-Type: application/json
-
-{"message": "Hello, agent!"}
-```
-
-Returns `text/event-stream` with events like:
-
-```
-event: message_update
-data: {"type":"message_update","timestamp":"...","delta":"Hello"}
-
-event: tool_execution_start
-data: {"type":"tool_execution_start","timestamp":"...","toolUse":{"id":"...","name":"search"}}
-
-event: agent_end
-data: {"type":"agent_end","timestamp":"...","error":null}
-```
-
----
-
-## Architecture
-
-```
-com.newwave.agent/
-  core/               Agent, AgentLoop, AgentToolCallbackAdapter
-  model/              ContentBlock (sealed), AgentMessage, enums
-  tool/               AgentTool<P,D>, AgentToolResult<D>, ToolCallContext<P>
-  config/             AgentConfig, AgentHooks, CompositeAgentHooks, auto-config
-  event/              AgentEvent (sealed, 11 types), EventEmitter
-  state/              AgentState, AgentStatus, MessageQueue
-  compaction/         TokenEstimator (SPI), CompactionStrategy (SPI), CompactionHook
-  timeline/           TimelineStore (SPI), TimelineRecorder, TimelineService, TimelineQueryTool
-  scheduling/         ScheduleStore (SPI), ScheduleExecutor (SPI), ScheduleDispatcher
-    aws/              AwsScheduleExecutor, AwsScheduleStore, SqsScheduleListener
-    database/         JdbcScheduleStore
-    memory/           InMemoryScheduleExecutor, InMemoryScheduleStore
-  proxy/              StreamProxyController (opt-in)
-```
-
-### Extension Points (SPIs)
-
-All SPIs use `@ConditionalOnMissingBean` -- provide your own bean to override the default.
+### spring-agent-core
 
 | SPI | Purpose | Default |
 |-----|---------|---------|
-| `AgentHooks` | Lifecycle hooks (beforeToolCall, transformContext, etc.) | No-op |
+| `ConversationStore` | Message persistence | `InMemoryConversationStore` |
+| `AgentHooks` | Lifecycle hooks | No-op (composite) |
+| `TokenEstimator` | Token counting for compaction | `SimpleTokenEstimator` (length / 4) |
+| `CompactionStrategy` | Context summarization | `LlmCompactionStrategy` |
+
+### spring-agent-app
+
+| SPI | Purpose | Default |
+|-----|---------|---------|
 | `TimelineStore` | Timeline event persistence | `InMemoryTimelineStore` |
-| `TokenEstimator` | Token counting for compaction | `SimpleTokenEstimator` (length/4) |
-| `CompactionStrategy` | How to summarize old messages | `LlmCompactionStrategy` |
+| `MemoryStore` | Agent memory persistence | `InMemoryMemoryStore` |
 | `ScheduleStore` | Schedule persistence + distributed locking | `InMemoryScheduleStore` |
 | `ScheduleExecutor` | Schedule execution engine | `InMemoryScheduleExecutor` |
 
-### Auto-Configuration
-
-All features are opt-in via `application.yml` properties. The library registers auto-configuration classes via `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`:
-
-- `AgentAutoConfiguration` — core agent, hooks composition
-- `CompactionAutoConfiguration` — `agent.compaction.enabled=true`
-- `TimelineAutoConfiguration` — `agent.timeline.enabled=true`
-- `SchedulingAutoConfiguration` — `agent.scheduling.enabled=true` (in-memory)
-- `AwsSchedulingAutoConfiguration` — `agent.scheduling.provider=aws` + AWS SDK on classpath
-
 ---
 
-## Configuration Reference
-
-### Core (`agent.*`)
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `agent.system-prompt` | "You are a helpful assistant." | System prompt for the LLM |
-| `agent.thinking-level` | `off` | Thinking level: off, low, medium, high, xhigh |
-| `agent.tool-execution-mode` | `parallel` | Tool execution: parallel, sequential |
-| `agent.max-turns` | `25` | Max LLM turns before stopping |
-| `agent.max-tokens` | `8192` | Max output tokens per LLM call |
-
-### Timeline (`agent.timeline.*`)
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `agent.timeline.enabled` | `false` | Enable timeline feature |
-| `agent.timeline.max-store-size` | `10000` | Max events in in-memory store |
-| `agent.timeline.max-recent-events-for-context` | `20` | Events injected into LLM context |
-| `agent.timeline.context-injection-enabled` | `true` | Auto-prepend timeline to context |
-| `agent.timeline.query-tool-enabled` | `true` | Register timeline query tool |
-
-### Compaction (`agent.compaction.*`)
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `agent.compaction.enabled` | `false` | Enable compaction feature |
-| `agent.compaction.max-context-tokens` | `100000` | Trigger compaction above this |
-| `agent.compaction.preserve-recent-count` | `10` | Recent messages to keep intact |
-| `agent.compaction.max-summary-tokens` | `2000` | Max tokens for the summary |
-| `agent.compaction.preserve-tool-results` | `true` | Include tool results in summary |
-
-### Scheduling (`agent.scheduling.*`)
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `agent.scheduling.enabled` | `false` | Enable scheduling feature |
-| `agent.scheduling.provider` | `memory` | Backend: memory, aws, database |
-
-### Scheduling AWS (`agent.scheduling.aws.*`)
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `agent.scheduling.aws.sqs-target-arn` | *(required)* | SQS queue ARN for EventBridge target |
-| `agent.scheduling.aws.sqs-queue-url` | *(required)* | SQS queue URL for polling |
-| `agent.scheduling.aws.role-arn` | *(required)* | IAM role for EventBridge -> SQS |
-| `agent.scheduling.aws.schedule-group` | `spring-agent` | EventBridge schedule group name |
-| `agent.scheduling.aws.dynamodb-table` | `spring-agent-schedules` | DynamoDB table name |
-| `agent.scheduling.aws.lock-ttl` | `PT30S` | Distributed lock TTL |
-| `agent.scheduling.aws.poll-interval` | `PT5S` | SQS polling interval |
-
-### Proxy (`agent.proxy.*`)
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `agent.proxy.enabled` | `false` | Enable SSE proxy endpoint |
-
----
-
-## Building
+# Building
 
 ```bash
-./mvnw clean compile    # Compile
-./mvnw test             # Run tests
-./mvnw install          # Install to local Maven repo
+./mvnw clean compile
+./mvnw test
+./mvnw install
 ```
 
-## License
+# License
 
-TBD
+[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0)
