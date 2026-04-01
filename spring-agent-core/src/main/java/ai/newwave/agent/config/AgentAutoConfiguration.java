@@ -4,6 +4,7 @@ import ai.newwave.agent.core.Agent;
 import ai.newwave.agent.state.spi.ConversationStore;
 import ai.newwave.agent.tool.AgentTool;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -52,7 +53,7 @@ public class AgentAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public Agent agent(AgentConfig config, ChatModel chatModel, ConversationStore conversationStore) {
+    public Agent agent(AgentConfig config, @Qualifier("anthropicChatModel") ChatModel chatModel, ConversationStore conversationStore) {
         return new Agent(config, chatModel, conversationStore);
     }
 
