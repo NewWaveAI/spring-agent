@@ -28,7 +28,7 @@ The core agent engine. Provides multi-turn conversations with streaming response
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
@@ -485,7 +485,7 @@ Optional application-layer features: activity timeline, agent memory, and event 
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
