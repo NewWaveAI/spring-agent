@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>ai.new-wave</groupId>
+        <artifactId>spring-agent-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>spring-agent-app</artifactId>
+    <name>spring-agent-app</name>
+    <description>Application-layer features: activity timeline, event scheduling, agent memory</description>
+
+    <dependencies>
+        <!-- Core agent framework -->
+        <dependency>
+            <groupId>ai.new-wave</groupId>
+            <artifactId>spring-agent-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Optional: JDBC for database-backed stores -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jdbc</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Optional: AWS EventBridge Scheduler -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>scheduler</artifactId>
+            <version>${aws-sdk.version}</version>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Optional: AWS SQS -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sqs</artifactId>
+            <version>${aws-sdk.version}</version>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Optional: AWS DynamoDB -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>dynamodb</artifactId>
+            <version>${aws-sdk.version}</version>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

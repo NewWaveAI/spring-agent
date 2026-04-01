@@ -1,0 +1,4 @@
+ai.newwave.agent.timeline.config.TimelineAutoConfiguration
+ai.newwave.agent.scheduling.config.SchedulingAutoConfiguration
+ai.newwave.agent.scheduling.aws.AwsSchedulingAutoConfiguration
+ai.newwave.agent.memory.config.MemoryAutoConfiguration

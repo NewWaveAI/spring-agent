@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>ai.new-wave</groupId>
+  <artifactId>spring-agent-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>spring-agent-parent</name>
+  <description>Stateful AI agent framework built on Spring AI</description>
+  <url>https://github.com/NewWaveAI/pi-mono-java</url>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>NewWave AI</name>
+      <organization>NewWave AI</organization>
+      <organizationUrl>https://new-wave.ai</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git://github.com/NewWaveAI/pi-mono-java.git</connection>
+    <developerConnection>scm:git:ssh://github.com:NewWaveAI/pi-mono-java.git</developerConnection>
+    <url>https://github.com/NewWaveAI/pi-mono-java/tree/main</url>
+  </scm>
+  <repositories>
+    <repository>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+      <id>spring-milestones</id>
+      <name>Spring Milestones</name>
+      <url>https://repo.spring.io/milestone</url>
+    </repository>
+  </repositories>
+</project>

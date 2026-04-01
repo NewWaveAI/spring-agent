@@ -1,0 +1,2 @@
+ai.newwave.agent.config.AgentAutoConfiguration
+ai.newwave.agent.compaction.config.CompactionAutoConfiguration
