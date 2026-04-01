@@ -7,7 +7,7 @@
   <version>0.1.0-SNAPSHOT</version>
   <name>spring-agent-app</name>
   <description>Application-layer features: activity timeline, event scheduling, agent memory</description>
-  <url>https://github.com/NewWaveAI/pi-mono-java/spring-agent-app</url>
+  <url>https://github.com/NewWaveAI/spring-agent/spring-agent-app</url>
   <licenses>
     <license>
       <name>Apache License, Version 2.0</name>
@@ -22,9 +22,9 @@
     </developer>
   </developers>
   <scm>
-    <connection>scm:git:git://github.com/NewWaveAI/pi-mono-java.git/spring-agent-app</connection>
-    <developerConnection>scm:git:ssh://github.com:NewWaveAI/pi-mono-java.git/spring-agent-app</developerConnection>
-    <url>https://github.com/NewWaveAI/pi-mono-java/tree/main/spring-agent-app</url>
+    <connection>scm:git:git://github.com/NewWaveAI/spring-agent.git/spring-agent-app</connection>
+    <developerConnection>scm:git:ssh://github.com:NewWaveAI/spring-agent.git/spring-agent-app</developerConnection>
+    <url>https://github.com/NewWaveAI/spring-agent/tree/main/spring-agent-app</url>
   </scm>
   <dependencies>
     <dependency>

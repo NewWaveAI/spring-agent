@@ -18,7 +18,7 @@
     <name>spring-agent-parent</name>
     <description>Stateful AI agent framework built on Spring AI</description>
 
-    <url>https://github.com/NewWaveAI/pi-mono-java</url>
+    <url>https://github.com/NewWaveAI/spring-agent</url>
 
     <licenses>
         <license>
@@ -36,9 +36,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/NewWaveAI/pi-mono-java.git</connection>
-        <developerConnection>scm:git:ssh://github.com:NewWaveAI/pi-mono-java.git</developerConnection>
-        <url>https://github.com/NewWaveAI/pi-mono-java/tree/main</url>
+        <connection>scm:git:git://github.com/NewWaveAI/spring-agent.git</connection>
+        <developerConnection>scm:git:ssh://github.com:NewWaveAI/spring-agent.git</developerConnection>
+        <url>https://github.com/NewWaveAI/spring-agent/tree/main</url>
     </scm>
 
     <modules>
