@@ -5,11 +5,13 @@
 
 A stateless AI agent client for Java, built on [Spring Boot 4](https://spring.io/projects/spring-boot) and [Spring AI 2](https://spring.io/projects/spring-ai). Designed for multi-tenant deployments behind a load balancer.
 
+No auto-configuration — you wire everything explicitly, like an SDK client.
+
 ## Modules
 
 | Module | Description |
 |--------|-------------|
-| `spring-agent-core` | Agent client, tools, events, hooks, compaction, SSE proxy |
+| `spring-agent-core` | Agent client, tools, events, hooks, compaction |
 | `spring-agent-app` | Activity timeline, agent memory, event scheduling, JDBC/AWS stores |
 
 ## Requirements
@@ -17,7 +19,7 @@ A stateless AI agent client for Java, built on [Spring Boot 4](https://spring.io
 - Java 21+
 - Spring Boot 4.0+
 - Spring AI 2.0+
-- PostgreSQL (for conversation/timeline/memory persistence)
+- PostgreSQL (for persistence)
 
 ---
 
@@ -27,13 +29,13 @@ A stateless AI agent client for Java, built on [Spring Boot 4](https://spring.io
 
 ```
 ai.newwave.agent.core           Agent, AgentRequest, AgentLoop
-ai.newwave.agent.config         AgentConfig, AgentHooks, HookContext, AgentProperties
+ai.newwave.agent.config         AgentConfig, AgentHooks, HookContext, AgentLoopConfig, CompositeAgentHooks
 ai.newwave.agent.event          AgentEvent, AgentEventType
-ai.newwave.agent.tool           AgentTool, AgentToolResult, ToolCallContext
-ai.newwave.agent.model          AgentMessage, ContentBlock, ThinkingLevel, MessageRole
+ai.newwave.agent.tool           AgentTool, AgentToolResult, ToolCallContext, @Description
+ai.newwave.agent.model          AgentMessage, ContentBlock, ThinkingLevel, MessageRole, ToolExecutionMode
 ai.newwave.agent.state.spi      ConversationStore
-ai.newwave.agent.compaction     CompactionHook, CompactionStrategy, TokenEstimator
-ai.newwave.agent.proxy          StreamProxyController
+ai.newwave.agent.compaction     CompactionHook, LlmCompactionStrategy, SimpleTokenEstimator
+ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 ```
 
 ## Installation
@@ -46,7 +48,7 @@ ai.newwave.agent.proxy          StreamProxyController
 </dependency>
 ```
 
-You also need the Spring AI milestone repository (until Spring AI 2.0 GA):
+Spring AI milestone repository (until Spring AI 2.0 GA):
 
 ```xml
 <repositories>
@@ -59,40 +61,48 @@ You also need the Spring AI milestone repository (until Spring AI 2.0 GA):
 
 ## Quick Start
 
-### 1. Configure `application.yml`
-
-```yaml
-spring:
-  ai:
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY}
-      chat:
-        options:
-          model: claude-sonnet-4-5-20250514
-          max-tokens: 8192
-
-agent:
-  system-prompt: "You are a helpful assistant."
-  thinking-level: off
-  tool-execution-mode: parallel
-  max-turns: 25
-```
-
-### 2. Provide a `ConversationStore` bean
-
-The agent needs a store for conversation persistence. Use the provided `JdbcConversationStore` for PostgreSQL (in `spring-agent-app`), or implement your own:
+### 1. Configure the Agent bean
 
 ```java
+import ai.newwave.agent.core.Agent;
+import ai.newwave.agent.config.AgentConfig;
+import ai.newwave.agent.config.AgentLoopConfig;
+import ai.newwave.agent.config.AgentHooks;
+import ai.newwave.agent.config.CompositeAgentHooks;
+import ai.newwave.agent.model.ThinkingLevel;
+import ai.newwave.agent.model.ToolExecutionMode;
 import ai.newwave.agent.state.spi.ConversationStore;
 import ai.newwave.agent.state.database.JdbcConversationStore;  // from spring-agent-app
 
-@Bean
-public ConversationStore conversationStore(JdbcTemplate jdbc) {
-    return new JdbcConversationStore(jdbc);
+@Configuration
+public class AgentConfiguration {
+
+    @Bean
+    public ConversationStore conversationStore(JdbcTemplate jdbc) {
+        return new JdbcConversationStore(jdbc);
+    }
+
+    @Bean
+    public Agent agent(@Qualifier("anthropicChatModel") ChatModel chatModel,
+                       ConversationStore store,
+                       List<AgentTool<?, ?>> tools) {
+        AgentConfig config = AgentConfig.builder()
+                .systemPrompt("You are a helpful assistant.")
+                .thinkingLevel(ThinkingLevel.OFF)
+                .maxTokens(8192)
+                .tools(tools)
+                .loopConfig(AgentLoopConfig.builder()
+                        .maxTurns(25)
+                        .toolExecutionMode(ToolExecutionMode.PARALLEL)
+                        .hooks(new AgentHooks() {})  // no-op, or your hooks
+                        .build())
+                .build();
+        return new Agent(config, chatModel, store);
+    }
 }
 ```
 
-### 3. Build a controller
+### 2. Build a controller
 
 ```java
 import ai.newwave.agent.core.Agent;
@@ -126,7 +136,7 @@ public class ChatController {
 }
 ```
 
-That's it. The `Agent` is auto-configured as a Spring bean. Each `stream()` call is stateless and self-contained — it loads conversation history from the store, runs the agent loop (LLM + tools), streams events, and persists new messages. Any instance behind a load balancer can handle any request.
+Each `stream()` call is stateless and self-contained — it loads conversation history from the store, runs the agent loop (LLM + tools), streams events, and persists new messages. Any instance behind a load balancer can handle any request.
 
 ---
 
@@ -217,13 +227,8 @@ AgentRequest.builder()
 Use `ConversationStore` directly for CRUD operations:
 
 ```java
-// Load messages
 conversationStore.loadMessages(agentId, convId).collectList().block();
-
-// List conversations for a user
 conversationStore.listConversationIds(agentId).collectList().block();
-
-// Delete a conversation
 conversationStore.deleteConversation(agentId, convId).block();
 ```
 
@@ -231,32 +236,30 @@ conversationStore.deleteConversation(agentId, convId).block();
 
 ## Tools
 
-Tools let the agent take actions. Implement `AgentTool<P, D>` and register as a `@Component` for auto-discovery. `P` is the parameter type, `D` is the result detail type.
+Implement `AgentTool<P, D>` and register as a `@Component`. `P` is the parameter type (a record), `D` is the result detail type.
+
+The `parameterSchema()` method is **auto-generated** from the record type. Use `@Description` to add field descriptions for the LLM:
 
 ```java
 import ai.newwave.agent.tool.AgentTool;
 import ai.newwave.agent.tool.AgentToolResult;
 import ai.newwave.agent.tool.ToolCallContext;
+import ai.newwave.agent.tool.Description;
 
 @Component
 public class WeatherTool implements AgentTool<WeatherTool.Params, String> {
 
-    public record Params(String location) {}
+    public record Params(
+        @Description("The city name, e.g. 'Tokyo'") String location,
+        @Description("Temperature unit: 'celsius' or 'fahrenheit'") String unit
+    ) {}
 
     @Override public String name() { return "get_weather"; }
     @Override public String label() { return "Get Weather"; }
     @Override public String description() { return "Get current weather for a location"; }
     @Override public Class<Params> parameterType() { return Params.class; }
 
-    @Override
-    public JsonNode parameterSchema() {
-        ObjectNode schema = new ObjectMapper().createObjectNode();
-        schema.put("type", "object");
-        schema.putObject("properties")
-              .putObject("location").put("type", "string");
-        schema.putArray("required").add("location");
-        return schema;
-    }
+    // parameterSchema() auto-generated from Params record + @Description annotations
 
     @Override
     public Mono<AgentToolResult<String>> execute(ToolCallContext<Params> ctx) {
@@ -265,6 +268,8 @@ public class WeatherTool implements AgentTool<WeatherTool.Params, String> {
     }
 }
 ```
+
+You can still override `parameterSchema()` for custom schemas.
 
 ### ToolCallContext
 
@@ -279,16 +284,13 @@ Every tool receives a `ToolCallContext` with request-scoped data:
 | `conversationId` | `String` | The conversation this call belongs to |
 | `attributes` | `Map<String, Object>` | Custom attributes from `AgentRequest` |
 
-This solves multi-tenant tool context — tools are `@Component` singletons, but each invocation carries the request context:
+Multi-tenant tool context — tools are singletons, but each invocation carries the request context:
 
 ```java
 @Override
 public Mono<AgentToolResult<String>> execute(ToolCallContext<Params> ctx) {
-    // Access tenant context
     String workspaceId = (String) ctx.attributes().get("workspaceId");
     String userId = ctx.agentId();
-
-    // Scope the query to this workspace
     List<Invoice> invoices = invoiceRepo.findByWorkspace(workspaceId);
     return Mono.just(AgentToolResult.success(formatInvoices(invoices)));
 }
@@ -340,33 +342,17 @@ agent.stream(request)
     .subscribe();
 ```
 
-### Streaming as SSE to Frontend
-
-```java
-@PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-public Flux<ServerSentEvent<AgentEvent>> chat(@RequestBody ChatRequest req) {
-    return agent.stream(AgentRequest.builder()
-                    .agentId(req.agentId())
-                    .message(req.message())
-                    .build())
-            .map(e -> ServerSentEvent.<AgentEvent>builder()
-                    .event(e.type().value())
-                    .data(e)
-                    .build());
-}
-```
-
 ---
 
 ## Hooks
 
-Customize agent behavior by implementing `AgentHooks` and registering as a `@Component`. Multiple hooks are automatically composed via `CompositeAgentHooks`.
+Implement `AgentHooks` to customize agent behavior. All hooks receive a `HookContext` with `agentId`, `conversationId`, and `attributes`. Use `CompositeAgentHooks` to chain multiple hooks.
 
 ```java
 import ai.newwave.agent.config.AgentHooks;
 import ai.newwave.agent.config.HookContext;
+import ai.newwave.agent.config.CompositeAgentHooks;
 
-@Component
 public class MyHooks implements AgentHooks {
 
     @Override
@@ -379,28 +365,67 @@ public class MyHooks implements AgentHooks {
 
     @Override
     public Mono<AgentToolResult<?>> afterToolCall(HookContext ctx, String toolName, ContentBlock.ToolUse toolUse, AgentToolResult<?> result) {
-        return Mono.just(result);  // modify or replace tool results
+        return Mono.just(result);
     }
 
     @Override
     public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
-        // ctx.agentId(), ctx.conversationId(), ctx.attributes() available here
-        return messages;  // inject context, prune messages, compact
+        // ctx.agentId(), ctx.conversationId(), ctx.attributes() available
+        return messages;
     }
 
     @Override
     public List<AgentMessage> convertToLlm(HookContext ctx, List<AgentMessage> messages) {
-        return messages;  // convert to LLM-compatible format
+        return messages;
     }
 }
+
+// Wire into the agent
+AgentConfig config = AgentConfig.builder()
+        .loopConfig(AgentLoopConfig.builder()
+                .hooks(new CompositeAgentHooks(List.of(myHook1, myHook2)))
+                .build())
+        .build();
 ```
 
 | Hook | When | Use Case |
 |------|------|----------|
-| `beforeToolCall` | Before a tool executes | Block dangerous tools, require approval |
+| `beforeToolCall` | Before a tool executes | Block dangerous tools, require human approval |
 | `afterToolCall` | After a tool executes | Modify results, add logging |
-| `transformContext` | Before each LLM call | Inject context, prune messages, compact |
+| `transformContext` | Before each LLM call | Inject workspace context, prune messages |
 | `convertToLlm` | After transformContext | Format conversion for the LLM |
+
+---
+
+## AgentConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `systemPrompt` | `String` | `"You are a helpful assistant."` | System prompt |
+| `model` | `String` | `"claude-sonnet-4-5-20250514"` | Model identifier |
+| `thinkingLevel` | `ThinkingLevel` | `OFF` | Extended thinking level |
+| `maxTokens` | `int` | `8192` | Max output tokens per LLM call |
+| `tools` | `List<AgentTool<?, ?>>` | empty | Available tools |
+| `loopConfig` | `AgentLoopConfig` | defaults | Loop settings (maxTurns, toolExecutionMode, hooks) |
+| `sessionId` | `String` | null | Optional session ID for cache-aware backends |
+
+### AgentLoopConfig
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `maxTurns` | `int` | `25` | Max LLM turns per `stream()` call |
+| `toolExecutionMode` | `ToolExecutionMode` | `PARALLEL` | `PARALLEL` or `SEQUENTIAL` |
+| `hooks` | `AgentHooks` | no-op | Lifecycle hooks |
+
+### ThinkingLevel
+
+| Level | Budget Tokens | Max Completion Tokens |
+|-------|--------------|----------------------|
+| `OFF` | 0 | 0 |
+| `LOW` | 1,024 | 4,096 |
+| `MEDIUM` | 4,096 | 8,192 |
+| `HIGH` | 16,384 | 32,768 |
+| `XHIGH` | 65,536 | 131,072 |
 
 ---
 
@@ -409,6 +434,9 @@ public class MyHooks implements AgentHooks {
 ### AgentMessage
 
 ```java
+import ai.newwave.agent.model.AgentMessage;
+import ai.newwave.agent.model.ContentBlock;
+
 AgentMessage.user("Hello")                                     // User text message
 AgentMessage.assistant(List.of(new ContentBlock.Text("Hi")))  // Assistant response
 AgentMessage.toolResult(toolUseId, List.of(blocks), false)    // Tool result
@@ -425,67 +453,41 @@ AgentMessage.toolResult(toolUseId, List.of(blocks), false)    // Tool result
 
 ---
 
-## Configuration
-
-Prefix: `agent.*`
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `system-prompt` | `"You are a helpful assistant."` | System prompt. Can be a resource path: `classpath:prompt.txt` |
-| `thinking-level` | `off` | Extended thinking: `off`, `low`, `medium`, `high`, `xhigh` |
-| `tool-execution-mode` | `parallel` | Tool execution: `parallel` or `sequential` |
-| `max-turns` | `25` | Max LLM turns per `stream()` call |
-| `max-tokens` | `8192` | Max output tokens per LLM call |
-
-### Thinking Levels
-
-| Level | Budget Tokens | Max Completion Tokens |
-|-------|--------------|----------------------|
-| `off` | 0 | 0 |
-| `low` | 1,024 | 4,096 |
-| `medium` | 4,096 | 8,192 |
-| `high` | 16,384 | 32,768 |
-| `xhigh` | 65,536 | 131,072 |
-
----
-
 ## Conversation Compaction
 
-Automatically summarizes old messages when context grows too large.
-
-```yaml
-agent:
-  compaction:
-    enabled: true
-    max-context-tokens: 100000
-    preserve-recent-count: 10
-    max-summary-tokens: 2000
-    preserve-tool-results: true
-```
-
-Before each LLM call, `CompactionHook` estimates the token count. If it exceeds `max-context-tokens`, older messages are sent to the LLM for summarization. The summary replaces them as a `[Conversation Summary]` message. Recent messages are kept intact.
-
-Override defaults:
+Summarizes old messages when context grows too large. Wire into the agent via hooks:
 
 ```java
-@Bean
-public TokenEstimator tokenEstimator() {
-    return new MyTikTokenEstimator();  // default: text.length() / 4
-}
+import ai.newwave.agent.compaction.CompactionHook;
+import ai.newwave.agent.compaction.LlmCompactionStrategy;
+import ai.newwave.agent.compaction.SimpleTokenEstimator;
+import ai.newwave.agent.compaction.model.CompactionConfig;
 
-@Bean
-public CompactionStrategy compactionStrategy() {
-    return new MyCustomStrategy();  // default: LLM-based summarization
-}
+TokenEstimator estimator = new SimpleTokenEstimator();  // text.length() / 4
+CompactionStrategy strategy = new LlmCompactionStrategy(chatModel, estimator);
+CompactionConfig compactionConfig = CompactionConfig.builder()
+        .maxContextTokens(100_000)
+        .preserveRecentCount(10)
+        .maxSummaryTokens(2000)
+        .preserveToolResults(true)
+        .build();
+CompactionHook compactionHook = new CompactionHook(strategy, compactionConfig, estimator);
+
+// Add to your hooks
+AgentLoopConfig.builder()
+        .hooks(new CompositeAgentHooks(List.of(compactionHook, myOtherHooks)))
+        .build();
 ```
 
 ---
 
 ## Conversation Persistence
 
-A `ConversationStore` bean is **required** (no default). Use `JdbcConversationStore` from `spring-agent-app`:
+Provide a `ConversationStore`. Use `JdbcConversationStore` from `spring-agent-app`:
 
 ```java
+import ai.newwave.agent.state.database.JdbcConversationStore;
+
 @Bean
 public ConversationStore conversationStore(JdbcTemplate jdbc) {
     return new JdbcConversationStore(jdbc);
@@ -507,7 +509,7 @@ CREATE TABLE conversation_messages (
 CREATE INDEX idx_conv_agent_conversation ON conversation_messages (agent_id, conversation_id, sequence);
 ```
 
-Or implement the interface yourself:
+The `ConversationStore` interface:
 
 ```java
 public interface ConversationStore {
@@ -521,61 +523,9 @@ public interface ConversationStore {
 
 ---
 
-## SSE Proxy (Optional)
-
-Built-in HTTP endpoint for streaming. Opt-in:
-
-```yaml
-agent:
-  proxy:
-    enabled: true
-```
-
-```
-POST /api/stream
-Content-Type: application/json
-
-{"message": "Hello!", "agentId": "550e8400-...", "conversationId": "optional-uuid"}
-```
-
-Returns `text/event-stream`:
-
-```
-event: message_update
-data: {"type":"message_update","timestamp":"...","delta":"Hello"}
-
-event: agent_end
-data: {"type":"agent_end","timestamp":"...","error":null}
-```
-
----
-
-## Auto-Configuration
-
-Beans registered by `AgentAutoConfiguration` (all `@ConditionalOnMissingBean`):
-
-| Bean | Description |
-|------|-------------|
-| `AgentHooks` | Composite of all registered hooks |
-| `AgentConfig` | Built from YAML properties + discovered tools + hooks |
-| `Agent` | Stateless agent client (uses `@Qualifier("anthropicChatModel")`) |
-
-**Required bean:** `ConversationStore` — no default provided.
-
-Compaction beans (when `agent.compaction.enabled=true`):
-
-| Bean | Description |
-|------|-------------|
-| `TokenEstimator` | `SimpleTokenEstimator` (text.length() / 4) |
-| `CompactionConfig` | Built from compaction properties |
-| `CompactionStrategy` | `LlmCompactionStrategy` |
-| `CompactionHook` | Registered as `AgentHooks` |
-
----
-
 # spring-agent-app
 
-Optional features: activity timeline, agent memory, event scheduling, and JDBC store implementations.
+Optional features: activity timeline, agent memory, event scheduling, and JDBC/AWS store implementations.
 
 ## Package Structure
 
@@ -609,30 +559,40 @@ ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsSc
 
 ## Activity Timeline
 
-Persistent "what happened" feed. The agent can query it for situational awareness.
-
-```yaml
-agent:
-  timeline:
-    enabled: true
-    max-store-size: 10000
-    max-recent-events-for-context: 20
-    context-injection-enabled: true
-    query-tool-enabled: true
-```
-
-Requires a `TimelineStore` bean:
+Persistent "what happened" feed. Wire it yourself:
 
 ```java
+import ai.newwave.agent.timeline.*;
+import ai.newwave.agent.timeline.database.JdbcTimelineStore;
+
 @Bean
 public TimelineStore timelineStore(JdbcTemplate jdbc) {
     return new JdbcTimelineStore(jdbc);
 }
+
+@Bean
+public TimelineService timelineService(TimelineStore store) {
+    return new TimelineService(store);
+}
+
+@Bean
+public TimelineRecorder timelineRecorder(TimelineStore store) {
+    return new TimelineRecorder(store);
+}
+
+// Add TimelineContextHook to your agent's hooks to inject timeline into LLM context
+TimelineContextHook timelineHook = new TimelineContextHook(timelineService, 20);
+```
+
+`TimelineRecorder` converts agent events to timeline entries. Use it in your stream pipeline:
+
+```java
+agent.stream(request)
+    .doOnNext(timelineRecorder::onEvent)
+    .map(e -> ServerSentEvent.<AgentEvent>builder().event(e.type().value()).data(e).build());
 ```
 
 ### What Gets Recorded
-
-`TimelineRecorder` converts agent events to timeline entries:
 
 | Agent Event | Timeline Type | Example |
 |-------------|--------------|---------|
@@ -643,8 +603,6 @@ public TimelineStore timelineStore(JdbcTemplate jdbc) {
 | `ScheduleFired` | `schedule_fired` | "Schedule 'daily-report' fired" |
 | `TurnStart` | `turn_started` | "Turn 3 started" |
 | `MessageEnd` | `message_completed` | "Assistant message completed" |
-
-High-frequency events (`MessageUpdate`, `MessageStart`, `TurnEnd`, `ToolExecutionUpdate`) are skipped.
 
 ### Custom Events
 
@@ -668,10 +626,6 @@ timelineService.query(TimelineQuery.builder()
 ).subscribe(event -> log.info("{}: {}", event.eventType(), event.summary()));
 ```
 
-### Context Injection
-
-When `context-injection-enabled: true`, recent events are prepended to the LLM context as an `[Activity Timeline]` message, giving the agent passive situational awareness.
-
 ### Required Table
 
 ```sql
@@ -694,27 +648,39 @@ CREATE INDEX idx_timeline_agent ON timeline_events (agent_id);
 
 ## Agent Memory
 
-Durable cross-conversation knowledge store. The agent can save and search facts using built-in tools.
-
-```yaml
-agent:
-  memory:
-    enabled: true
-    context-injection-enabled: true
-    save-tool-enabled: true
-    search-tool-enabled: true
-```
-
-Requires a `MemoryStore` bean:
+Durable cross-conversation knowledge store. Wire it yourself:
 
 ```java
+import ai.newwave.agent.memory.*;
+import ai.newwave.agent.memory.database.JdbcMemoryStore;
+
 @Bean
 public MemoryStore memoryStore(JdbcTemplate jdbc) {
     return new JdbcMemoryStore(jdbc);
 }
+
+@Bean
+public MemoryService memoryService(MemoryStore store) {
+    return new MemoryService(store);
+}
+
+// Add MemoryContextHook to your agent's hooks to inject memories into LLM context
+MemoryContextHook memoryHook = new MemoryContextHook(memoryService);
 ```
 
 ### Built-in Tools
+
+Register these as tools in your `AgentConfig`:
+
+```java
+import ai.newwave.agent.memory.tool.SaveMemoryTool;
+import ai.newwave.agent.memory.tool.SearchMemoryTool;
+
+AgentConfig.builder()
+    .addTool(new SaveMemoryTool(memoryService))
+    .addTool(new SearchMemoryTool(memoryService))
+    .build();
+```
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
@@ -729,21 +695,31 @@ memoryService.search(Set.of("ops")).subscribe(m -> log.info("{}: {}", m.key(), m
 memoryService.delete("api-schedule").block();
 ```
 
-When `context-injection-enabled: true`, all memories are prepended to the LLM context as an `[Agent Memory]` message.
-
 ---
 
 ## Event Scheduling
 
-Schedule agent actions for later execution. Backed by EventBridge (AWS) or PostgreSQL.
+Schedule agent actions for later execution. Wire it yourself:
 
-```yaml
-agent:
-  scheduling:
-    enabled: true
+```java
+import ai.newwave.agent.scheduling.*;
+import ai.newwave.agent.scheduling.aws.*;
+
+@Bean
+public ScheduleDispatcher scheduleDispatcher(Agent agent) {
+    return new ScheduleDispatcher(agent);
+}
+
+@Bean
+public ScheduleService scheduleService(ScheduleExecutor executor) {
+    return new ScheduleService(executor);
+}
+
+// Register the query tool
+AgentConfig.builder()
+    .addTool(new ScheduleQueryTool(scheduleService))
+    .build();
 ```
-
-Requires a `ScheduleExecutor` bean — provided by `AwsSchedulingAutoConfiguration` when AWS SDK is on the classpath, or implement your own.
 
 ### Schedule Types
 
@@ -756,6 +732,8 @@ Requires a `ScheduleExecutor` bean — provided by `AwsSchedulingAutoConfigurati
 ### Payload Types
 
 ```java
+import ai.newwave.agent.scheduling.model.SchedulePayload;
+
 new SchedulePayload.PromptAction(agentId, conversationId, "Generate the daily report")
 new SchedulePayload.SteerAction(agentId, conversationId, "Also check error logs")
 new SchedulePayload.FollowUpAction(agentId, conversationId, "Summarize findings")
@@ -776,45 +754,31 @@ scheduleService.cancel(scheduleId).block();
 scheduleService.listActive().subscribe(e -> log.info("{}", e));
 ```
 
-The `query_schedules` built-in tool lets the agent list, get, and cancel schedules.
-
 ### Backend: AWS (EventBridge)
 
-```yaml
-agent:
-  scheduling:
-    aws:
-      sqs-target-arn: arn:aws:sqs:us-east-1:123456789:spring-agent-schedules
-      sqs-queue-url: https://sqs.us-east-1.amazonaws.com/123456789/spring-agent-schedules
-      role-arn: arn:aws:iam::123456789:role/eventbridge-sqs-role
-      schedule-group: spring-agent
-      dynamodb-table: spring-agent-schedules
-      lock-ttl: PT30S
-      poll-interval: PT5S
+```java
+import ai.newwave.agent.scheduling.aws.*;
+
+SchedulerClient schedulerClient = SchedulerClient.create();
+SqsClient sqsClient = SqsClient.create();
+DynamoDbClient dynamoDbClient = DynamoDbClient.create();
+
+ScheduleStore store = new AwsScheduleStore(dynamoDbClient, "spring-agent-schedules");
+ScheduleExecutor executor = new AwsScheduleExecutor(schedulerClient, store, sqsTargetArn, roleArn, "spring-agent");
+SqsScheduleListener listener = new SqsScheduleListener(sqsClient, queueUrl, store, dispatcher, Duration.ofSeconds(30));
 ```
 
 Required AWS resources: SQS queue, DynamoDB table (partition key `id`, GSI `enabled-nextFireTime-index`), IAM role, EventBridge schedule group.
 
-Required dependencies:
-
-```xml
-<dependency>
-    <groupId>software.amazon.awssdk</groupId>
-    <artifactId>scheduler</artifactId>
-</dependency>
-<dependency>
-    <groupId>software.amazon.awssdk</groupId>
-    <artifactId>sqs</artifactId>
-</dependency>
-<dependency>
-    <groupId>software.amazon.awssdk</groupId>
-    <artifactId>dynamodb</artifactId>
-</dependency>
-```
-
 ### Backend: PostgreSQL (JDBC)
 
-Provide a `JdbcScheduleStore` bean. Required table:
+```java
+import ai.newwave.agent.scheduling.database.JdbcScheduleStore;
+
+ScheduleStore store = new JdbcScheduleStore(jdbc);
+```
+
+Required table:
 
 ```sql
 CREATE TABLE scheduled_events (
@@ -835,23 +799,23 @@ CREATE INDEX idx_due_events ON scheduled_events (enabled, next_fire_time);
 
 ---
 
-# Extension Points
+# Interfaces
 
-All SPIs use `@ConditionalOnMissingBean` — provide your own bean to override.
+All interfaces — implement your own or use the provided implementations.
 
 ### spring-agent-core
 
-| SPI | Purpose | Provided Implementation |
-|-----|---------|------------------------|
+| Interface | Purpose | Provided Implementation |
+|-----------|---------|------------------------|
 | `ConversationStore` | Message persistence | `JdbcConversationStore` (in app module) |
-| `AgentHooks` | Lifecycle hooks | No-op composite |
+| `AgentHooks` | Lifecycle hooks | `CompositeAgentHooks` for chaining |
 | `TokenEstimator` | Token counting | `SimpleTokenEstimator` (length / 4) |
 | `CompactionStrategy` | Context summarization | `LlmCompactionStrategy` |
 
 ### spring-agent-app
 
-| SPI | Purpose | Provided Implementation |
-|-----|---------|------------------------|
+| Interface | Purpose | Provided Implementation |
+|-----------|---------|------------------------|
 | `TimelineStore` | Timeline persistence | `JdbcTimelineStore` (PostgreSQL) |
 | `MemoryStore` | Memory persistence | `JdbcMemoryStore` (PostgreSQL) |
 | `ScheduleStore` | Schedule persistence + locking | `AwsScheduleStore` (DynamoDB) |
