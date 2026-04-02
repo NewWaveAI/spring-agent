@@ -38,20 +38,20 @@ public class CompositeAgentHooks implements AgentHooks {
     }
 
     @Override
-    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
-        List<AgentMessage> result = messages;
+    public Mono<List<AgentMessage>> transformContext(HookContext ctx, List<AgentMessage> messages) {
+        Mono<List<AgentMessage>> current = Mono.just(messages);
         for (AgentHooks hook : delegates) {
-            result = hook.transformContext(ctx, result);
+            current = current.flatMap(msgs -> hook.transformContext(ctx, msgs));
         }
-        return result;
+        return current;
     }
 
     @Override
-    public List<AgentMessage> convertToLlm(HookContext ctx, List<AgentMessage> messages) {
-        List<AgentMessage> result = messages;
+    public Mono<List<AgentMessage>> convertToLlm(HookContext ctx, List<AgentMessage> messages) {
+        Mono<List<AgentMessage>> current = Mono.just(messages);
         for (AgentHooks hook : delegates) {
-            result = hook.convertToLlm(ctx, result);
+            current = current.flatMap(msgs -> hook.convertToLlm(ctx, msgs));
         }
-        return result;
+        return current;
     }
 }

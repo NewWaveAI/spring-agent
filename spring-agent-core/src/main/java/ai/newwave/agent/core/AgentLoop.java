@@ -99,29 +99,26 @@ public class AgentLoop {
             // Build Spring AI messages from conversation state
             AgentHooks hooks = loopConfig.hooks();
             HookContext hookCtx = new HookContext(agentId, conversationId, attributes);
-            List<AgentMessage> context = hooks.transformContext(hookCtx, List.copyOf(messages));
-            List<AgentMessage> llmMessages = hooks.convertToLlm(hookCtx, context);
 
-            // Convert to Spring AI messages and call LLM
-            List<Message> springMessages = toSpringMessages(llmMessages);
-            Prompt prompt = buildPrompt(springMessages);
-
-            return streamLlmResponse(prompt, turnNumber)
-                    .then(Mono.defer(() -> {
-                        // Check for tool calls in the last assistant message
-                        List<ContentBlock.ToolUse> toolCalls = extractToolCalls();
-                        if (toolCalls.isEmpty()) {
-                            sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
-                            return Mono.empty();
-                        }
-
-                        // Execute tools
-                        return executeTools(toolCalls, hookCtx)
+            return hooks.transformContext(hookCtx, List.copyOf(messages))
+                    .flatMap(context -> hooks.convertToLlm(hookCtx, context))
+                    .flatMap(llmMessages -> {
+                        List<Message> springMessages = toSpringMessages(llmMessages);
+                        Prompt prompt = buildPrompt(springMessages);
+                        return streamLlmResponse(prompt, turnNumber)
                                 .then(Mono.defer(() -> {
-                                    sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
-                                    return innerLoop(turnNumber + 1);
+                                    List<ContentBlock.ToolUse> toolCalls = extractToolCalls();
+                                    if (toolCalls.isEmpty()) {
+                                        sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
+                                        return Mono.<Void>empty();
+                                    }
+                                    return executeTools(toolCalls, hookCtx)
+                                            .then(Mono.defer(() -> {
+                                                sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
+                                                return innerLoop(turnNumber + 1);
+                                            }));
                                 }));
-                    }));
+                    });
         });
     }
 

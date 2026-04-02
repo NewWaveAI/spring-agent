@@ -4,6 +4,7 @@ import ai.newwave.agent.config.AgentHooks;
 import ai.newwave.agent.config.HookContext;
 import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.timeline.model.TimelineQuery;
+import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,20 +24,19 @@ public class TimelineContextHook implements AgentHooks {
     }
 
     @Override
-    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
-        String summary = timelineService.summarize(
+    public Mono<List<AgentMessage>> transformContext(HookContext ctx, List<AgentMessage> messages) {
+        return timelineService.summarize(
                         TimelineQuery.builder().limit(maxRecentEvents).build())
-                .block();
-
-        if (summary == null || summary.isBlank()) {
-            return messages;
-        }
-
-        AgentMessage contextMsg = AgentMessage.user("[Activity Timeline]\n" + summary);
-
-        List<AgentMessage> result = new ArrayList<>();
-        result.add(contextMsg);
-        result.addAll(messages);
-        return result;
+                .flatMap(summary -> {
+                    if (summary == null || summary.isBlank()) {
+                        return Mono.just(messages);
+                    }
+                    AgentMessage contextMsg = AgentMessage.user("[Activity Timeline]\n" + summary);
+                    List<AgentMessage> result = new ArrayList<>();
+                    result.add(contextMsg);
+                    result.addAll(messages);
+                    return Mono.just(result);
+                })
+                .defaultIfEmpty(messages);
     }
 }

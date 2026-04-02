@@ -9,6 +9,7 @@ import ai.newwave.agent.config.HookContext;
 import ai.newwave.agent.model.AgentMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,27 +34,25 @@ public class CompactionHook implements AgentHooks {
     }
 
     @Override
-    public List<AgentMessage> transformContext(HookContext ctx, List<AgentMessage> messages) {
+    public Mono<List<AgentMessage>> transformContext(HookContext ctx, List<AgentMessage> messages) {
         int tokenCount = tokenEstimator.estimateTokens(messages);
         if (tokenCount <= config.maxContextTokens()) {
-            return messages;
+            return Mono.just(messages);
         }
 
         log.info("Context exceeds {} tokens (estimated {}), triggering compaction",
                 config.maxContextTokens(), tokenCount);
 
-        CompactionResult result = strategy.compact(messages, config).block();
-        if (result == null) {
-            return messages;
-        }
-
-        lastCompaction = result;
-
-        int splitIndex = Math.max(0, messages.size() - config.preserveRecentCount());
-        List<AgentMessage> compacted = new ArrayList<>();
-        compacted.add(result.summaryMessage());
-        compacted.addAll(messages.subList(splitIndex, messages.size()));
-        return compacted;
+        return strategy.compact(messages, config)
+                .map(result -> {
+                    lastCompaction = result;
+                    int splitIndex = Math.max(0, messages.size() - config.preserveRecentCount());
+                    List<AgentMessage> compacted = new ArrayList<>();
+                    compacted.add(result.summaryMessage());
+                    compacted.addAll(messages.subList(splitIndex, messages.size()));
+                    return compacted;
+                })
+                .defaultIfEmpty(messages);
     }
 
     public CompactionResult getLastCompaction() {
