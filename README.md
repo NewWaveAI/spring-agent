@@ -391,7 +391,7 @@ AgentConfig config = AgentConfig.builder()
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `systemPrompt` | `String` | `"You are a helpful assistant."` | System prompt |
-| `model` | `String` | `"claude-sonnet-4-5-20250514"` | Model identifier |
+| `model` | `String` | `"claude-sonnet-4-20250514"` | Model identifier |
 | `thinkingLevel` | `ThinkingLevel` | `OFF` | Extended thinking level |
 | `maxTokens` | `int` | `8192` | Max output tokens per LLM call |
 | `tools` | `List<AgentTool<?, ?>>` | empty | Available tools |

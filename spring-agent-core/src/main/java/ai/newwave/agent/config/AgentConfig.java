@@ -10,7 +10,7 @@ import java.util.List;
  * Top-level configuration for an Agent instance.
  *
  * @param systemPrompt  System instructions for the LLM
- * @param model         Model identifier (e.g. "claude-sonnet-4-5-20250514")
+ * @param model         Model identifier (e.g. "claude-sonnet-4-20250514")
  * @param thinkingLevel Thinking/reasoning level
  * @param maxTokens     Maximum output tokens
  * @param tools         Available tools
@@ -33,7 +33,7 @@ public record AgentConfig(
 
     public static class Builder {
         private String systemPrompt = "You are a helpful assistant.";
-        private String model = "claude-sonnet-4-5-20250514";
+        private String model = "claude-sonnet-4-6";
         private ThinkingLevel thinkingLevel = ThinkingLevel.OFF;
         private int maxTokens = 8192;
         private List<AgentTool<?, ?>> tools = new ArrayList<>();

@@ -380,6 +380,7 @@ public class AgentLoop {
 
         if (config.thinkingLevel() != ThinkingLevel.OFF) {
             optionsBuilder.thinking(AnthropicApi.ThinkingType.ENABLED, config.thinkingLevel().getBudgetTokens());
+            optionsBuilder.temperature(1.0);
         }
 
         if (!config.tools().isEmpty()) {
