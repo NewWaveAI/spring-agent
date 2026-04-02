@@ -44,7 +44,7 @@ ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>1.0.5</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
@@ -472,9 +472,18 @@ AgentLoopConfig.builder()
 
 ## Conversation Persistence
 
-Provide a `ConversationStore`. Use `JdbcConversationStore` from `spring-agent-app`:
+Provide a `ConversationStore`. Use `R2dbcConversationStore` for fully non-blocking, or `JdbcConversationStore` for blocking JDBC:
 
 ```java
+// R2DBC (non-blocking)
+import ai.newwave.agent.state.r2dbc.R2dbcConversationStore;
+
+@Bean
+public ConversationStore conversationStore(DatabaseClient db) {
+    return new R2dbcConversationStore(db);
+}
+
+// Or JDBC (blocking)
 import ai.newwave.agent.state.database.JdbcConversationStore;
 
 @Bean
@@ -520,14 +529,17 @@ Optional features: activity timeline, agent memory, event scheduling, and JDBC/A
 
 ```
 ai.newwave.agent.state.database     JdbcConversationStore
+ai.newwave.agent.state.r2dbc        R2dbcConversationStore
 ai.newwave.agent.timeline           TimelineService, TimelineRecorder, TimelineContextHook
 ai.newwave.agent.timeline.model     TimelineEvent, TimelineQuery, TimelineActor
 ai.newwave.agent.timeline.spi       TimelineStore
 ai.newwave.agent.timeline.database  JdbcTimelineStore
+ai.newwave.agent.timeline.r2dbc    R2dbcTimelineStore
 ai.newwave.agent.memory             MemoryService, MemoryContextHook
 ai.newwave.agent.memory.model       Memory
 ai.newwave.agent.memory.spi         MemoryStore
 ai.newwave.agent.memory.database    JdbcMemoryStore
+ai.newwave.agent.memory.r2dbc      R2dbcMemoryStore
 ai.newwave.agent.scheduling         ScheduleService, ScheduleDispatcher
 ai.newwave.agent.scheduling.model   ScheduledEvent, SchedulePayload, ScheduleType, RetryConfig
 ai.newwave.agent.scheduling.spi     ScheduleStore, ScheduleExecutor
@@ -540,7 +552,7 @@ ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsSc
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>1.0.5</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
@@ -779,7 +791,7 @@ All interfaces — implement your own or use the provided implementations.
 
 | Interface | Purpose | Provided Implementation |
 |-----------|---------|------------------------|
-| `ConversationStore` | Message persistence | `JdbcConversationStore` (in app module) |
+| `ConversationStore` | Message persistence | `JdbcConversationStore`, `R2dbcConversationStore` |
 | `AgentHooks` | Lifecycle hooks | `CompositeAgentHooks` for chaining |
 | `TokenEstimator` | Token counting | `SimpleTokenEstimator` (length / 4) |
 | `CompactionStrategy` | Context summarization | `LlmCompactionStrategy` |
@@ -788,8 +800,8 @@ All interfaces — implement your own or use the provided implementations.
 
 | Interface | Purpose | Provided Implementation |
 |-----------|---------|------------------------|
-| `TimelineStore` | Timeline persistence | `JdbcTimelineStore` |
-| `MemoryStore` | Memory persistence | `JdbcMemoryStore` |
+| `TimelineStore` | Timeline persistence | `JdbcTimelineStore`, `R2dbcTimelineStore` |
+| `MemoryStore` | Memory persistence | `JdbcMemoryStore`, `R2dbcMemoryStore` |
 | `ScheduleStore` | Schedule persistence + locking | `AwsScheduleStore` (DynamoDB) |
 | `ScheduleExecutor` | Schedule execution | `AwsScheduleExecutor` (EventBridge) |
 

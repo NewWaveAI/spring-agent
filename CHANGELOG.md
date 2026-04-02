@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0] - 2026-04-02
+
+### Added
+- R2DBC store implementations — fully non-blocking end-to-end:
+  - `R2dbcConversationStore` (`ai.newwave.agent.state.r2dbc`)
+  - `R2dbcTimelineStore` (`ai.newwave.agent.timeline.r2dbc`)
+  - `R2dbcMemoryStore` (`ai.newwave.agent.memory.r2dbc`)
+
+### Changed
+- `AgentHooks.transformContext()` and `convertToLlm()` now return `Mono<List<AgentMessage>>` (reactive, no blocking)
+- `CompactionHook`, `MemoryContextHook`, `TimelineContextHook` fully reactive — zero `.block()` calls
+- Default model updated to `claude-sonnet-4-6`
+- Temperature automatically set to `1.0` when extended thinking is enabled
+
 ## [1.0.5] - 2026-04-02
 
 ### Fixed
