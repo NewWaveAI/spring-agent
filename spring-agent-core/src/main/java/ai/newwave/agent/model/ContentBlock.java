@@ -1,13 +1,21 @@
 package ai.newwave.agent.model;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
 
 /**
  * Sealed interface representing content blocks within agent messages.
- * Maps to the TypeScript ContentBlock union type.
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = ContentBlock.Text.class, name = "text"),
+        @JsonSubTypes.Type(value = ContentBlock.ToolUse.class, name = "tool_use"),
+        @JsonSubTypes.Type(value = ContentBlock.ToolResult.class, name = "tool_result"),
+        @JsonSubTypes.Type(value = ContentBlock.Thinking.class, name = "thinking")
+})
 public sealed interface ContentBlock
         permits ContentBlock.Text, ContentBlock.ToolUse, ContentBlock.ToolResult, ContentBlock.Thinking {
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1] - 2026-04-01
+
+### Fixed
+- `ContentBlock` now has `@JsonTypeInfo` + `@JsonSubTypes` annotations for proper Jackson serialization/deserialization
+
+### Changed
+- JDBC stores work with any database (PostgreSQL, MySQL, H2, etc.) — README updated accordingly
+
 ## [1.0.0] - 2026-04-01
 
 ### Changed

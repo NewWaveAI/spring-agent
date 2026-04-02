@@ -19,7 +19,7 @@ No auto-configuration — you wire everything explicitly, like an SDK client.
 - Java 21+
 - Spring Boot 3.5+
 - Spring AI 1.1+
-- PostgreSQL (for persistence)
+- A JDBC database (PostgreSQL, MySQL, H2, etc.)
 
 ---
 
@@ -44,7 +44,7 @@ ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 
@@ -540,7 +540,7 @@ ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsSc
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 
@@ -805,8 +805,8 @@ All interfaces — implement your own or use the provided implementations.
 
 | Interface | Purpose | Provided Implementation |
 |-----------|---------|------------------------|
-| `TimelineStore` | Timeline persistence | `JdbcTimelineStore` (PostgreSQL) |
-| `MemoryStore` | Memory persistence | `JdbcMemoryStore` (PostgreSQL) |
+| `TimelineStore` | Timeline persistence | `JdbcTimelineStore` |
+| `MemoryStore` | Memory persistence | `JdbcMemoryStore` |
 | `ScheduleStore` | Schedule persistence + locking | `AwsScheduleStore` (DynamoDB) |
 | `ScheduleExecutor` | Schedule execution | `AwsScheduleExecutor` (EventBridge) |
 
