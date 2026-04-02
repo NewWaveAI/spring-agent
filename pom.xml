@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.5</version>
+        <version>3.5.9</version>
         <relativePath/>
     </parent>
 
@@ -48,7 +48,7 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-ai.version>2.0.0-M4</spring-ai.version>
+        <spring-ai.version>1.1.4</spring-ai.version>
         <aws-sdk.version>2.31.9</aws-sdk.version>
     </properties>
 
@@ -161,25 +161,4 @@
         </profile>
     </profiles>
 
-    <repositories>
-        <repository>
-            <id>spring-milestones</id>
-            <name>Spring Milestones</name>
-            <url>https://repo.spring.io/milestone</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
-
-    <pluginRepositories>
-        <pluginRepository>
-            <id>spring-milestones</id>
-            <name>Spring Milestones</name>
-            <url>https://repo.spring.io/milestone</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </pluginRepository>
-    </pluginRepositories>
 </project>

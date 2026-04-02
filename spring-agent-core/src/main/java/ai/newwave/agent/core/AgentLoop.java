@@ -19,6 +19,7 @@ import ai.newwave.agent.tool.ToolCallContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
+import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -377,7 +378,7 @@ public class AgentLoop {
                 .maxTokens(config.maxTokens());
 
         if (config.thinkingLevel() != ThinkingLevel.OFF) {
-            optionsBuilder.thinkingEnabled(config.thinkingLevel().getBudgetTokens());
+            optionsBuilder.thinking(AnthropicApi.ThinkingType.ENABLED, config.thinkingLevel().getBudgetTokens());
         }
 
         if (!config.tools().isEmpty()) {
