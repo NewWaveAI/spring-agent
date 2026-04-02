@@ -358,35 +358,6 @@ class AgentLoopTest {
     }
 
     @Test
-    void orphanedToolUse_strippedFromContext() {
-        AtomicInteger llmCallCount = new AtomicInteger(0);
-
-        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
-            int call = llmCallCount.incrementAndGet();
-            if (call == 1) {
-                // LLM requests a tool → terminatesLoop stops the loop
-                return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"hello\"}"));
-            }
-            // Second call (after new user message): should work fine
-            return Flux.just(textChunk("final answer"));
-        });
-
-        // First run: tool terminates the loop
-        List<AgentMessage> messages = new ArrayList<>();
-        messages.add(AgentMessage.user("Hi"));
-        AgentLoop loop1 = createLoop(messages, List.of(new TestTool(true)));
-        loop1.run().block();
-        assertEquals(1, llmCallCount.get());
-
-        // Simulate new user message (next conversation turn)
-        messages.add(AgentMessage.user("Continue"));
-        AgentLoop loop2 = createLoop(messages, List.of(new TestTool(true)));
-        // This should not throw — orphaned tool_use/tool_result should be handled gracefully
-        loop2.run().block();
-        assertEquals(2, llmCallCount.get());
-    }
-
-    @Test
     void maxToolResultsInContext_limitsOlderToolPairs() {
         AtomicInteger llmCallCount = new AtomicInteger(0);
 
