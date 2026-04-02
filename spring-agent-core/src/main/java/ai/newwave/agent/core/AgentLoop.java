@@ -61,6 +61,7 @@ public class AgentLoop {
     private final Sinks.Many<AgentEvent> sink;
     private final ConversationStore conversationStore;
     private volatile boolean shouldTerminate = false;
+    private final Set<String> excludedToolIds = new HashSet<>();
 
     public AgentLoop(
             String agentId,
@@ -301,6 +302,9 @@ public class AgentLoop {
                     if (modifiedResult.terminatesLoop()) {
                         shouldTerminate = true;
                     }
+                    if (modifiedResult.excludeFromContext()) {
+                        excludedToolIds.add(toolUse.id());
+                    }
 
                     sink.tryEmitNext(new AgentEvent.ToolExecutionEnd(agentId, conversationId, toolUse, modifiedResult));
                     return modifiedResult;
@@ -344,7 +348,7 @@ public class AgentLoop {
             List<String> allToolUseIds = new ArrayList<>();
             for (AgentMessage msg : agentMessages) {
                 for (ContentBlock block : msg.content()) {
-                    if (block instanceof ContentBlock.ToolUse tu) {
+                    if (block instanceof ContentBlock.ToolUse tu && !excludedToolIds.contains(tu.id())) {
                         allToolUseIds.add(tu.id());
                     }
                 }
@@ -375,6 +379,7 @@ public class AgentLoop {
                     List<AssistantMessage.ToolCall> toolCalls = msg.content().stream()
                             .filter(b -> b instanceof ContentBlock.ToolUse)
                             .map(b -> (ContentBlock.ToolUse) b)
+                            .filter(tu -> !excludedToolIds.contains(tu.id()))
                             .filter(tu -> filterIds == null || filterIds.contains(tu.id()))
                             .map(tu -> new AssistantMessage.ToolCall(
                                     tu.id(), "function", tu.name(), tu.input().toString()))
@@ -398,6 +403,7 @@ public class AgentLoop {
                 case TOOL_RESULT -> {
                     for (ContentBlock block : msg.content()) {
                         if (block instanceof ContentBlock.ToolResult tr
+                                && !excludedToolIds.contains(tr.toolUseId())
                                 && (includedToolIds == null || includedToolIds.contains(tr.toolUseId()))) {
                             String resultText = tr.content().stream()
                                     .filter(b -> b instanceof ContentBlock.Text)
