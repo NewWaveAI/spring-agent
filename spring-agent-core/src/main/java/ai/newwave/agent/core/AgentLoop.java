@@ -37,8 +37,10 @@ import reactor.core.publisher.Sinks;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -335,6 +337,39 @@ public class AgentLoop {
     }
 
     private List<Message> toSpringMessages(List<AgentMessage> agentMessages) {
+        // Collect all tool_use IDs and tool_result IDs for pairing validation
+        Set<String> toolUseIds = new HashSet<>();
+        Set<String> toolResultIds = new HashSet<>();
+        for (AgentMessage msg : agentMessages) {
+            for (ContentBlock block : msg.content()) {
+                if (block instanceof ContentBlock.ToolUse tu) {
+                    toolUseIds.add(tu.id());
+                } else if (block instanceof ContentBlock.ToolResult tr) {
+                    toolResultIds.add(tr.toolUseId());
+                }
+            }
+        }
+        // Only include tool_use that has a matching tool_result, and vice versa
+        Set<String> pairedIds = new HashSet<>(toolUseIds);
+        pairedIds.retainAll(toolResultIds);
+
+        // Limit to last N tool pairs if configured
+        int maxToolResults = config.loopConfig().maxToolResultsInContext();
+        if (maxToolResults > 0 && pairedIds.size() > maxToolResults) {
+            // Keep only the last N paired IDs (by order of appearance in messages)
+            List<String> orderedPairedIds = new ArrayList<>();
+            for (AgentMessage msg : agentMessages) {
+                for (ContentBlock block : msg.content()) {
+                    if (block instanceof ContentBlock.ToolUse tu && pairedIds.contains(tu.id())) {
+                        orderedPairedIds.add(tu.id());
+                    }
+                }
+            }
+            Set<String> recentIds = new HashSet<>(
+                    orderedPairedIds.subList(Math.max(0, orderedPairedIds.size() - maxToolResults), orderedPairedIds.size()));
+            pairedIds.retainAll(recentIds);
+        }
+
         List<Message> result = new ArrayList<>();
         for (AgentMessage msg : agentMessages) {
             switch (msg.role()) {
@@ -353,11 +388,10 @@ public class AgentLoop {
 
                     List<AssistantMessage.ToolCall> toolCalls = msg.content().stream()
                             .filter(b -> b instanceof ContentBlock.ToolUse)
-                            .map(b -> {
-                                ContentBlock.ToolUse tu = (ContentBlock.ToolUse) b;
-                                return new AssistantMessage.ToolCall(
-                                        tu.id(), "function", tu.name(), tu.input().toString());
-                            })
+                            .map(b -> (ContentBlock.ToolUse) b)
+                            .filter(tu -> pairedIds.contains(tu.id()))
+                            .map(tu -> new AssistantMessage.ToolCall(
+                                    tu.id(), "function", tu.name(), tu.input().toString()))
                             .toList();
 
                     String thinking = msg.content().stream()
@@ -377,7 +411,7 @@ public class AgentLoop {
                 }
                 case TOOL_RESULT -> {
                     for (ContentBlock block : msg.content()) {
-                        if (block instanceof ContentBlock.ToolResult tr) {
+                        if (block instanceof ContentBlock.ToolResult tr && pairedIds.contains(tr.toolUseId())) {
                             String resultText = tr.content().stream()
                                     .filter(b -> b instanceof ContentBlock.Text)
                                     .map(b -> ((ContentBlock.Text) b).text())

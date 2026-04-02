@@ -1,6 +1,7 @@
 package ai.newwave.agent.core;
 
 import ai.newwave.agent.config.AgentConfig;
+import ai.newwave.agent.config.AgentLoopConfig;
 import ai.newwave.agent.event.AgentEvent;
 import ai.newwave.agent.event.AgentEventType;
 import ai.newwave.agent.model.AgentMessage;
@@ -354,5 +355,72 @@ class AgentLoopTest {
 
         // LLM should be called twice — tool doesn't terminate loop
         assertEquals(2, llmCallCount.get(), "Loop should continue after normal tool");
+    }
+
+    @Test
+    void orphanedToolUse_strippedFromContext() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            int call = llmCallCount.incrementAndGet();
+            if (call == 1) {
+                // LLM requests a tool → terminatesLoop stops the loop
+                return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"hello\"}"));
+            }
+            // Second call (after new user message): should work fine
+            return Flux.just(textChunk("final answer"));
+        });
+
+        // First run: tool terminates the loop
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("Hi"));
+        AgentLoop loop1 = createLoop(messages, List.of(new TestTool(true)));
+        loop1.run().block();
+        assertEquals(1, llmCallCount.get());
+
+        // Simulate new user message (next conversation turn)
+        messages.add(AgentMessage.user("Continue"));
+        AgentLoop loop2 = createLoop(messages, List.of(new TestTool(true)));
+        // This should not throw — orphaned tool_use/tool_result should be handled gracefully
+        loop2.run().block();
+        assertEquals(2, llmCallCount.get());
+    }
+
+    @Test
+    void maxToolResultsInContext_limitsOlderToolPairs() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            int call = llmCallCount.incrementAndGet();
+            if (call == 1) {
+                return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"first\"}"));
+            }
+            if (call == 2) {
+                return Flux.just(toolCallChunk("tool-2", "test_tool", "{\"input\":\"second\"}"));
+            }
+            if (call == 3) {
+                return Flux.just(toolCallChunk("tool-3", "test_tool", "{\"input\":\"third\"}"));
+            }
+            return Flux.just(textChunk("done"));
+        });
+
+        // maxToolResultsInContext=2 — only last 2 tool pairs in context
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("Hi"));
+        AgentConfig config = AgentConfig.builder()
+                .tools(List.of(new TestTool(false)))
+                .loopConfig(AgentLoopConfig.builder().maxToolResultsInContext(2).build())
+                .build();
+        AgentLoop loop = new AgentLoop("agent-1", "conv-1", messages, Map.of(), config, chatModel, sink, conversationStore);
+        loop.run().block();
+
+        assertEquals(4, llmCallCount.get());
+
+        // All 3 tool uses stored in messages
+        long toolUseCount = messages.stream()
+                .flatMap(m -> m.content().stream())
+                .filter(b -> b instanceof ContentBlock.ToolUse)
+                .count();
+        assertEquals(3, toolUseCount, "All 3 tool uses should be stored in messages");
     }
 }
