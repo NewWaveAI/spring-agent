@@ -337,39 +337,61 @@ public class AgentLoop {
     }
 
     private List<Message> toSpringMessages(List<AgentMessage> agentMessages) {
-        // Build set of tool names excluded from context
+        // --- Step 1: Determine which tool IDs to skip ---
+
+        // Excluded by tool definition (excludeFromContext)
         Set<String> excludedToolNames = config.tools().stream()
                 .filter(AgentTool::excludeFromContext)
                 .map(AgentTool::name)
                 .collect(Collectors.toSet());
-
-        // Map excluded tool names to tool_use IDs
-        Set<String> excludedIds = new HashSet<>();
+        Set<String> skipIds = new HashSet<>();
         for (AgentMessage msg : agentMessages) {
             for (ContentBlock block : msg.content()) {
                 if (block instanceof ContentBlock.ToolUse tu && excludedToolNames.contains(tu.name())) {
-                    excludedIds.add(tu.id());
+                    skipIds.add(tu.id());
                 }
             }
         }
 
-        // Collect non-excluded tool_use IDs for maxToolResultsInContext limiting
-        Set<String> includedToolIds = null;
+        // maxToolResultsInContext — collect non-excluded tool IDs, keep last N
         int maxToolResults = config.loopConfig().maxToolResultsInContext();
         if (maxToolResults > 0) {
             List<String> allToolUseIds = new ArrayList<>();
             for (AgentMessage msg : agentMessages) {
                 for (ContentBlock block : msg.content()) {
-                    if (block instanceof ContentBlock.ToolUse tu && !excludedIds.contains(tu.id())) {
+                    if (block instanceof ContentBlock.ToolUse tu && !skipIds.contains(tu.id())) {
                         allToolUseIds.add(tu.id());
                     }
                 }
             }
             if (allToolUseIds.size() > maxToolResults) {
-                includedToolIds = new HashSet<>(
+                Set<String> keepIds = new HashSet<>(
                         allToolUseIds.subList(allToolUseIds.size() - maxToolResults, allToolUseIds.size()));
+                for (String id : allToolUseIds) {
+                    if (!keepIds.contains(id)) skipIds.add(id);
+                }
             }
         }
+
+        // --- Step 2: Build messages with tool_result IDs index ---
+
+        // Index: tool_use_id → tool_result AgentMessage (for reordering)
+        Map<String, AgentMessage> toolResultByUseId = new java.util.LinkedHashMap<>();
+        for (AgentMessage msg : agentMessages) {
+            if (msg.role() == MessageRole.TOOL_RESULT) {
+                for (ContentBlock block : msg.content()) {
+                    if (block instanceof ContentBlock.ToolResult tr) {
+                        toolResultByUseId.put(tr.toolUseId(), msg);
+                    }
+                }
+            }
+        }
+
+        // Track which tool_result messages have been emitted (for reordering)
+        Set<String> emittedToolResultMsgIds = new HashSet<>();
+        // Track pending tool_use IDs that need tool_results before user messages
+        Set<String> pendingToolUseIds = new HashSet<>();
+        List<Message> deferred = new ArrayList<>();
 
         List<Message> result = new ArrayList<>();
         for (AgentMessage msg : agentMessages) {
@@ -379,20 +401,28 @@ public class AgentLoop {
                             .filter(b -> b instanceof ContentBlock.Text)
                             .map(b -> ((ContentBlock.Text) b).text())
                             .collect(Collectors.joining("\n"));
-                    result.add(new UserMessage(text));
+                    Message userMsg = new UserMessage(text);
+                    if (!pendingToolUseIds.isEmpty()) {
+                        // Defer user message until tool_results arrive
+                        deferred.add(userMsg);
+                    } else {
+                        result.add(userMsg);
+                    }
                 }
                 case ASSISTANT -> {
+                    // Flush any deferred messages first
+                    result.addAll(deferred);
+                    deferred.clear();
+
                     String text = msg.content().stream()
                             .filter(b -> b instanceof ContentBlock.Text)
                             .map(b -> ((ContentBlock.Text) b).text())
                             .collect(Collectors.joining("\n"));
 
-                    Set<String> filterIds = includedToolIds;
                     List<AssistantMessage.ToolCall> toolCalls = msg.content().stream()
                             .filter(b -> b instanceof ContentBlock.ToolUse)
                             .map(b -> (ContentBlock.ToolUse) b)
-                            .filter(tu -> !excludedIds.contains(tu.id()))
-                            .filter(tu -> filterIds == null || filterIds.contains(tu.id()))
+                            .filter(tu -> !skipIds.contains(tu.id()))
                             .map(tu -> new AssistantMessage.ToolCall(
                                     tu.id(), "function", tu.name(), tu.input().toString()))
                             .toList();
@@ -411,12 +441,16 @@ public class AgentLoop {
                     }
 
                     result.add(builder.build());
+
+                    // Track pending tool_use IDs
+                    pendingToolUseIds.clear();
+                    for (var tc : toolCalls) {
+                        pendingToolUseIds.add(tc.id());
+                    }
                 }
                 case TOOL_RESULT -> {
                     for (ContentBlock block : msg.content()) {
-                        if (block instanceof ContentBlock.ToolResult tr
-                                && !excludedIds.contains(tr.toolUseId())
-                                && (includedToolIds == null || includedToolIds.contains(tr.toolUseId()))) {
+                        if (block instanceof ContentBlock.ToolResult tr && !skipIds.contains(tr.toolUseId())) {
                             String resultText = tr.content().stream()
                                     .filter(b -> b instanceof ContentBlock.Text)
                                     .map(b -> ((ContentBlock.Text) b).text())
@@ -425,12 +459,64 @@ public class AgentLoop {
                                     .responses(List.of(new ToolResponseMessage.ToolResponse(
                                             tr.toolUseId(), tr.toolUseId(), resultText)))
                                     .build());
+                            pendingToolUseIds.remove(tr.toolUseId());
+                            emittedToolResultMsgIds.add(msg.id());
                         }
+                    }
+                    // If all pending tool_uses resolved, flush deferred
+                    if (pendingToolUseIds.isEmpty()) {
+                        result.addAll(deferred);
+                        deferred.clear();
                     }
                 }
             }
         }
-        return result;
+        // Flush any remaining deferred messages
+        result.addAll(deferred);
+
+        // --- Step 3: Pair matching safety net ---
+        Set<String> resultToolUseIds = new HashSet<>();
+        Set<String> resultToolResultIds = new HashSet<>();
+        for (Message m : result) {
+            if (m instanceof AssistantMessage am && am.getToolCalls() != null) {
+                for (var tc : am.getToolCalls()) {
+                    resultToolUseIds.add(tc.id());
+                }
+            }
+            if (m instanceof ToolResponseMessage trm) {
+                for (var resp : trm.getResponses()) {
+                    resultToolResultIds.add(resp.id());
+                }
+            }
+        }
+        Set<String> pairedIds = new HashSet<>(resultToolUseIds);
+        pairedIds.retainAll(resultToolResultIds);
+
+        // Remove unpaired tool_use from assistant messages and unpaired tool_results
+        List<Message> sanitized = new ArrayList<>();
+        for (Message m : result) {
+            if (m instanceof AssistantMessage am && am.getToolCalls() != null && !am.getToolCalls().isEmpty()) {
+                List<AssistantMessage.ToolCall> paired = am.getToolCalls().stream()
+                        .filter(tc -> pairedIds.contains(tc.id()))
+                        .toList();
+                sanitized.add(AssistantMessage.builder()
+                        .content(am.getText())
+                        .toolCalls(paired)
+                        .properties(am.getMetadata())
+                        .build());
+            } else if (m instanceof ToolResponseMessage trm) {
+                List<ToolResponseMessage.ToolResponse> paired = trm.getResponses().stream()
+                        .filter(resp -> pairedIds.contains(resp.id()))
+                        .toList();
+                if (!paired.isEmpty()) {
+                    sanitized.add(ToolResponseMessage.builder().responses(paired).build());
+                }
+            } else {
+                sanitized.add(m);
+            }
+        }
+
+        return sanitized;
     }
 
     private Prompt buildPrompt(List<Message> messages) {

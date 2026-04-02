@@ -439,4 +439,58 @@ class AgentLoopTest {
         loop2.run().block();
         assertEquals(2, llmCallCount.get());
     }
+
+    @Test
+    void interleavedUserMessage_reorderedAfterToolResult() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            int call = llmCallCount.incrementAndGet();
+            if (call == 1) {
+                return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"analyze\"}"));
+            }
+            // Second call after tool completes — should succeed
+            return Flux.just(textChunk("done"));
+        });
+
+        // Simulate interleaved messages: assistant(tool_use) → user(interleaved) → tool_result
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("start"));
+        messages.add(AgentMessage.assistant(List.of(
+                new ContentBlock.Text("Let me analyze"),
+                new ContentBlock.ToolUse("tool-1", "test_tool",
+                        new ObjectMapper().createObjectNode().put("input", "analyze")))));
+        messages.add(AgentMessage.user("hello?"));  // interleaved!
+        messages.add(AgentMessage.toolResult("tool-1", List.of(new ContentBlock.Text("result")), false));
+
+        AgentLoop loop = createLoop(messages, List.of(new TestTool(false)));
+        // Should NOT throw — interleaved user message gets reordered
+        loop.run().block();
+        assertEquals(2, llmCallCount.get());
+    }
+
+    @Test
+    void orphanedToolUse_strippedByPairMatching() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            llmCallCount.incrementAndGet();
+            return Flux.just(textChunk("done"));
+        });
+
+        // Simulate orphaned tool_use (no tool_result — e.g. from terminatesLoop)
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("start"));
+        messages.add(AgentMessage.assistant(List.of(
+                new ContentBlock.Text("Let me check"),
+                new ContentBlock.ToolUse("orphan-1", "test_tool",
+                        new ObjectMapper().createObjectNode().put("input", "x")))));
+        // No tool_result for orphan-1!
+        messages.add(AgentMessage.user("continue"));
+
+        AgentLoop loop = createLoop(messages, List.of(new TestTool(false)));
+        // Should NOT throw — orphaned tool_use gets stripped
+        loop.run().block();
+        assertEquals(1, llmCallCount.get());
+    }
 }
