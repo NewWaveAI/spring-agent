@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.3] - 2026-04-02
+
+### Changed
+- Single shared `Json.MAPPER` (`ai.newwave.agent.util.Json`) replaces 13 separate ObjectMapper instances
+
 ## [1.0.2] - 2026-04-02
 
 ### Fixed
