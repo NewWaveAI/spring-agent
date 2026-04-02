@@ -201,9 +201,11 @@ public class AgentLoop {
                                 AgentMessage.assistant(List.of())));
                     }
 
-                    // Process text content
+                    // Process text content — skip if this chunk is thinking content
                     String text = output.getText();
-                    if (text != null && !text.isEmpty()) {
+                    Map<String, Object> metadata = output.getMetadata();
+                    boolean isThinkingChunk = metadata != null && metadata.containsKey("reasoningContent");
+                    if (text != null && !text.isEmpty() && !isThinkingChunk) {
                         textAccumulator.append(text);
                         sink.tryEmitNext(new AgentEvent.MessageUpdate(agentId, conversationId, text));
                     }
@@ -222,7 +224,6 @@ public class AgentLoop {
                     }
 
                     // Stream thinking deltas from metadata
-                    Map<String, Object> metadata = output.getMetadata();
                     if (metadata != null && metadata.containsKey("reasoningContent")) {
                         Object reasoning = metadata.get("reasoningContent");
                         if (reasoning instanceof String thinkingText && thinkingText.length() > thinkingLength[0]) {

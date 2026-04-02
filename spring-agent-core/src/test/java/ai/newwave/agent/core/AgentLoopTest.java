@@ -195,10 +195,11 @@ class AgentLoopTest {
 
     @Test
     void thinkingThenText_separateEventTypes() {
-        // Thinking comes first, then text
+        // Thinking comes first in separate chunks, then text in separate chunks
         when(chatModel.stream(any(org.springframework.ai.chat.prompt.Prompt.class))).thenReturn(Flux.just(
                 thinkingChunk("I should greet"),
-                thinkingAndTextChunk("I should greet the user", "Hello!"),
+                thinkingChunk("I should greet the user"),
+                textChunk("Hello!"),
                 textChunk(" How are you?")
         ));
 
