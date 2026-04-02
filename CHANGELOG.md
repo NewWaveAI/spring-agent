@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.1] - 2026-04-02
+
+### Changed
+- `AgentTool.parameterSchema()` now uses Spring AI's `JsonSchemaGenerator` (backed by victools) instead of custom `SchemaGenerator`
+- `@Description` annotation replaced by Jackson standard `@JsonPropertyDescription` (`com.fasterxml.jackson.annotation`)
+
+### Removed
+- Custom `SchemaGenerator` class (was in `AgentTool.java`)
+- `@Description` annotation (`ai.newwave.agent.tool.Description`)
+
+### Added
+- `SchemaGeneratorTest` — 6 test cases for schema generation (flat, nested, deeply nested records)
+
 ## [1.1.0] - 2026-04-02
 
 ### Added
