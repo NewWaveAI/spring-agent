@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.5] - 2026-04-02
+
+### Fixed
+- `TimelineActor` and `SchedulePayload` now have `@JsonTypeInfo` + `@JsonSubTypes` for proper serialization
+
+### Changed
+- `TimelineRecorder` gutted to empty shell — no auto-recording of agent lifecycle events
+- Timeline is now purely for custom business events (invoices, campaigns, alerts, etc.)
+
+### Added
+- `SealedTypeSerializationTest` — roundtrip tests for `TimelineActor` and `SchedulePayload`
+
 ## [1.0.4] - 2026-04-02
 
 ### Fixed

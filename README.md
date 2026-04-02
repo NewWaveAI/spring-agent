@@ -44,7 +44,7 @@ ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>1.0.4</version>
+    <version>1.0.5</version>
 </dependency>
 ```
 
@@ -540,7 +540,7 @@ ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsSc
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>1.0.4</version>
+    <version>1.0.5</version>
 </dependency>
 ```
 
@@ -564,43 +564,26 @@ public TimelineService timelineService(TimelineStore store) {
     return new TimelineService(store);
 }
 
-@Bean
-public TimelineRecorder timelineRecorder(TimelineStore store) {
-    return new TimelineRecorder(store);
-}
-
 // Add TimelineContextHook to your agent's hooks to inject timeline into LLM context
 TimelineContextHook timelineHook = new TimelineContextHook(timelineService, 20);
 ```
 
-`TimelineRecorder` converts agent events to timeline entries. Use it in your stream pipeline:
+### Recording Events
+
+Timeline is for meaningful business events — things that give the agent external context it wouldn't otherwise have:
 
 ```java
-agent.stream(request)
-    .doOnNext(timelineRecorder::onEvent)
-    .map(e -> ServerSentEvent.<AgentEvent>builder().event(e.type().value()).data(e).build());
-```
+timelineService.record(new TimelineActor.System("billing"),
+    "invoice_paid", "Invoice #1234 paid ($500)").subscribe();
 
-### What Gets Recorded
+timelineService.record(new TimelineActor.System("campaigns"),
+    "campaign_activated", "Campaign 'Summer Sale' activated").subscribe();
 
-| Agent Event | Timeline Type | Example |
-|-------------|--------------|---------|
-| `AgentStart` | `agent_started` | "Agent started" |
-| `AgentEnd` | `agent_ended` | "Agent completed" |
-| `ToolExecutionStart` | `tool_execution_started` | "Started executing tool 'search'" |
-| `ToolExecutionEnd` | `tool_executed` | "Executed tool 'search'" |
-| `ScheduleFired` | `schedule_fired` | "Schedule 'daily-report' fired" |
-| `TurnStart` | `turn_started` | "Turn 3 started" |
-| `MessageEnd` | `message_completed` | "Assistant message completed" |
+timelineService.record(new TimelineActor.System("security"),
+    "api_key_rotated", "API key rotated for workspace ws-123").subscribe();
 
-### Custom Events
-
-```java
-timelineService.record(
-    new TimelineActor.User(userId, "John"),
-    "user_login",
-    "User John logged in"
-).subscribe();
+timelineService.record(new TimelineActor.System("monitoring"),
+    "alert_triggered", "Error rate exceeded 5% threshold").subscribe();
 ```
 
 ### Querying
@@ -608,7 +591,7 @@ timelineService.record(
 ```java
 timelineService.query(TimelineQuery.builder()
     .agentId(userId)
-    .eventTypes(List.of("tool_executed"))
+    .eventTypes(List.of("invoice_paid", "campaign_activated"))
     .since(Instant.now().minus(Duration.ofHours(1)))
     .limit(10)
     .build()

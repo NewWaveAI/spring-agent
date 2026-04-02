@@ -1,120 +1,25 @@
 package ai.newwave.agent.timeline;
 
 import ai.newwave.agent.event.AgentEvent;
-import ai.newwave.agent.timeline.model.TimelineActor;
-import ai.newwave.agent.timeline.model.TimelineEvent;
-import ai.newwave.agent.timeline.spi.TimelineStore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * Bridges the agent event system to the timeline store.
- * Automatically converts AgentEvents into TimelineEvents.
- * Use as a Flux consumer: {@code agent.stream(...).doOnNext(recorder::onEvent)}
+ * Base class for recording agent events to the timeline.
+ * Default implementation does nothing — extend and override {@link #accept(AgentEvent)}
+ * to record events that matter to your application.
+ *
+ * <p>Use in your stream pipeline:
+ * <pre>
+ * agent.stream(request)
+ *     .doOnNext(recorder::accept)
+ *     .subscribe();
+ * </pre>
  */
 public class TimelineRecorder implements Consumer<AgentEvent> {
 
-    private static final Logger log = LoggerFactory.getLogger(TimelineRecorder.class);
-
-    private final TimelineStore store;
-
-    public TimelineRecorder(TimelineStore store) {
-        this.store = store;
-    }
-
     @Override
     public void accept(AgentEvent event) {
-        onEvent(event);
-    }
-
-    public void onEvent(AgentEvent event) {
-        TimelineEvent timelineEvent = toTimelineEvent(event);
-        if (timelineEvent != null) {
-            store.append(timelineEvent)
-                    .doOnError(e -> log.error("Failed to record timeline event", e))
-                    .subscribe();
-        }
-    }
-
-    private TimelineEvent toTimelineEvent(AgentEvent event) {
-        TimelineActor agent = new TimelineActor.AgentActor(event.agentId(), "agent");
-        String agentId = event.agentId();
-        String conversationId = event.conversationId();
-
-        return switch (event) {
-            case AgentEvent.AgentStart e -> TimelineEvent.builder()
-                    .actor(new TimelineActor.System("agent"))
-                    .eventType("agent_started")
-                    .summary("Agent started")
-                    .agentId(agentId)
-                    .conversationId(conversationId)
-                    .build();
-
-            case AgentEvent.AgentEnd e -> TimelineEvent.builder()
-                    .actor(new TimelineActor.System("agent"))
-                    .eventType("agent_ended")
-                    .summary(e.error() != null ? "Agent ended with error: " + e.error() : "Agent completed")
-                    .metadata(e.error() != null ? Map.of("error", e.error()) : Map.of())
-                    .agentId(agentId)
-                    .conversationId(conversationId)
-                    .build();
-
-            case AgentEvent.ToolExecutionStart e -> TimelineEvent.builder()
-                    .actor(agent)
-                    .eventType("tool_execution_started")
-                    .summary("Started executing tool '%s'".formatted(e.toolUse().name()))
-                    .metadata(Map.of("toolName", e.toolUse().name(), "toolUseId", e.toolUse().id()))
-                    .agentId(agentId)
-                    .conversationId(conversationId)
-                    .build();
-
-            case AgentEvent.ToolExecutionEnd e -> TimelineEvent.builder()
-                    .actor(agent)
-                    .eventType("tool_executed")
-                    .summary("Executed tool '%s'%s".formatted(
-                            e.toolUse().name(),
-                            e.result().isError() ? " (error)" : ""))
-                    .metadata(Map.of(
-                            "toolName", e.toolUse().name(),
-                            "toolUseId", e.toolUse().id(),
-                            "isError", e.result().isError()))
-                    .agentId(agentId)
-                    .conversationId(conversationId)
-                    .build();
-
-            case AgentEvent.ScheduleFired e -> TimelineEvent.builder()
-                    .actor(new TimelineActor.System("scheduler"))
-                    .eventType("schedule_fired")
-                    .summary("Schedule '%s' fired (type: %s)".formatted(e.scheduleId(), e.scheduleType()))
-                    .metadata(e.metadata())
-                    .agentId(agentId)
-                    .conversationId(conversationId)
-                    .build();
-
-            case AgentEvent.TurnStart e -> TimelineEvent.builder()
-                    .actor(new TimelineActor.System("agent"))
-                    .eventType("turn_started")
-                    .summary("Turn %d started".formatted(e.turnNumber()))
-                    .agentId(agentId)
-                    .conversationId(conversationId)
-                    .build();
-
-            // Skip high-frequency events
-            case AgentEvent.MessageUpdate ignored -> null;
-            case AgentEvent.MessageStart ignored -> null;
-            case AgentEvent.TurnEnd ignored -> null;
-            case AgentEvent.ToolExecutionUpdate ignored -> null;
-
-            case AgentEvent.MessageEnd e -> TimelineEvent.builder()
-                    .actor(agent)
-                    .eventType("message_completed")
-                    .summary("Assistant message completed")
-                    .agentId(agentId)
-                    .conversationId(conversationId)
-                    .build();
-        };
+        // No-op by default. Override to record specific events.
     }
 }
