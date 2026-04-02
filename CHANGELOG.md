@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.3.0] - 2026-04-02
+
+### Added
+- `ConversationStateManager` SPI — distributed locking, status tracking, and message queuing
+- `RedisConversationStateManager` — Redis implementation using `ReactiveStringRedisTemplate`
+- `DynamoDbConversationStateManager` — DynamoDB implementation using `DynamoDbAsyncClient`
+- `ConversationStatus` enum (`IDLE`, `RUNNING`, `ABORTING`)
+- `Agent.steer(agentId, conversationId, message)` — inject messages into a running loop
+- `Agent.followUp(agentId, conversationId, message)` — queue messages for after the loop completes
+- `Agent.abort(agentId, conversationId)` — request the running loop to stop
+- `Agent.getStatus(agentId, conversationId)` — check conversation status
+- Outer loop in `Agent` — drains follow-up queue after inner loop completes
+- Steering drain in `AgentLoop` — appends steering messages before each LLM call
+- Abort check in `AgentLoop` — stops loop when abort is requested
+- Concurrent `stream()` calls on the same conversation are queued as follow-ups (no interleaving)
+
+### Changed
+- `Agent` now accepts optional `ConversationStateManager` (null = stateless, backwards compatible)
+- `AgentLoop` accepts optional `ConversationStateManager` for steering/abort support
+
+## [1.2.6] - 2026-04-02
+
+### Added
+- Message reordering in `toSpringMessages()` — defers user messages interleaved between tool_use and tool_result
+- Pair matching safety net — strips orphaned tool_use/tool_result blocks
+
+## [1.2.5] - 2026-04-02
+
+### Changed
+- `excludeFromContext` moved from `AgentToolResult` to `AgentTool` interface (config-level, stateless)
+- `toSpringMessages()` filters tool_use/tool_result by tool name using registered tools
+
 ## [1.2.4] - 2026-04-02
 
 ### Added

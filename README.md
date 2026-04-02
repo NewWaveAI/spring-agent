@@ -31,9 +31,12 @@ No auto-configuration — you wire everything explicitly, like an SDK client.
 ai.newwave.agent.core           Agent, AgentRequest, AgentLoop
 ai.newwave.agent.config         AgentConfig, AgentHooks, HookContext, AgentLoopConfig, CompositeAgentHooks
 ai.newwave.agent.event          AgentEvent, AgentEventType
-ai.newwave.agent.tool           AgentTool, AgentToolResult, ToolCallContext, @Description
+ai.newwave.agent.tool           AgentTool, AgentToolResult, ToolCallContext
 ai.newwave.agent.model          AgentMessage, ContentBlock, ThinkingLevel, MessageRole, ToolExecutionMode
-ai.newwave.agent.state.spi      ConversationStore
+ai.newwave.agent.state.spi      ConversationStore, ConversationStateManager
+ai.newwave.agent.state.model    ConversationStatus
+ai.newwave.agent.state.redis    RedisConversationStateManager
+ai.newwave.agent.state.dynamodb DynamoDbConversationStateManager
 ai.newwave.agent.compaction     CompactionHook, LlmCompactionStrategy, SimpleTokenEstimator
 ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 ```
@@ -44,7 +47,7 @@ ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>1.1.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
@@ -86,7 +89,11 @@ public class AgentConfiguration {
                         .hooks(new AgentHooks() {})  // no-op, or your hooks
                         .build())
                 .build();
+        // Without state manager (stateless, fire-and-forget)
         return new Agent(config, chatModel, store);
+
+        // With Redis state manager (locking, steer, followUp, abort)
+        // return new Agent(config, chatModel, store, redisStateManager);
     }
 }
 ```
@@ -170,7 +177,7 @@ agent.stream(AgentRequest.builder()
 
 ### `Agent.stream(AgentRequest)` → `Flux<AgentEvent>`
 
-The only method on the `Agent` class. Returns a reactive stream of events.
+The primary method on the `Agent` class. Returns a reactive stream of events.
 
 ```java
 Flux<AgentEvent> events = agent.stream(AgentRequest.builder()
@@ -182,14 +189,73 @@ Flux<AgentEvent> events = agent.stream(AgentRequest.builder()
 ```
 
 Each call:
-1. Loads existing messages from `ConversationStore`
-2. Appends the new user message
-3. Runs the agent loop (LLM → tool calls → recurse until done)
-4. Emits `AgentEvent`s as a `Flux`
-5. Persists all new messages
-6. Completes with `AgentEnd`
+1. Acquires conversation lock (if `ConversationStateManager` configured — otherwise stateless)
+2. Loads existing messages from `ConversationStore`
+3. Appends the new user message
+4. Runs the agent loop (LLM → tool calls → recurse until done)
+5. Drains follow-up queue (outer loop)
+6. Emits `AgentEvent`s as a `Flux`
+7. Persists all new messages
+8. Releases lock and completes with `AgentEnd`
+
+If a conversation is already running, the message is automatically queued as a follow-up.
 
 To continue a conversation, call `stream()` again with the same agentId + conversationId.
+
+### Conversation State Management
+
+Without a `ConversationStateManager`, the agent is fully stateless — each `stream()` call is fire-and-forget. This is simple but allows message interleaving when users send messages during tool execution.
+
+With a `ConversationStateManager` (Redis or DynamoDB), you get:
+
+| Method | Description |
+|--------|-------------|
+| `agent.steer(agentId, convId, msg)` | Inject a message into the running loop (appended before next LLM call) |
+| `agent.followUp(agentId, convId, msg)` | Queue a message for after the current loop completes |
+| `agent.abort(agentId, convId)` | Request the running loop to stop |
+| `agent.getStatus(agentId, convId)` | Returns `IDLE`, `RUNNING`, or `ABORTING` |
+
+#### Redis Setup
+
+```java
+import ai.newwave.agent.state.redis.RedisConversationStateManager;
+
+@Bean
+public ConversationStateManager stateManager(ReactiveStringRedisTemplate redis) {
+    return new RedisConversationStateManager(redis);
+}
+
+@Bean
+public Agent agent(ChatModel chatModel, ConversationStore store,
+                   ConversationStateManager stateManager, List<AgentTool<?, ?>> tools) {
+    AgentConfig config = AgentConfig.builder()
+            .tools(tools)
+            .build();
+    return new Agent(config, chatModel, store, stateManager);
+}
+```
+
+Requires `spring-boot-starter-data-redis-reactive`.
+
+#### DynamoDB Setup
+
+```java
+import ai.newwave.agent.state.dynamodb.DynamoDbConversationStateManager;
+
+@Bean
+public ConversationStateManager stateManager(DynamoDbAsyncClient dynamoDb) {
+    return new DynamoDbConversationStateManager(dynamoDb, "agent_conversation_state");
+}
+```
+
+DynamoDB table schema:
+```
+Table: agent_conversation_state
+PK: pk (S) — "agent:{agentId}:conv:{conversationId}"
+SK: sk (S) — "status" | "followup:{timestamp}:{id}" | "steer:{timestamp}:{id}"
+```
+
+Requires `software.amazon.awssdk:dynamodb`.
 
 ### AgentRequest
 
@@ -552,7 +618,7 @@ ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsSc
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>1.1.0</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
