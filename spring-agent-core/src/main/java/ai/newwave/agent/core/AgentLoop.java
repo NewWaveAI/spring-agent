@@ -1,7 +1,8 @@
 package ai.newwave.agent.core;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.newwave.agent.config.AgentConfig;
 import ai.newwave.agent.config.AgentHooks;
 import ai.newwave.agent.config.AgentLoopConfig;
@@ -47,7 +48,7 @@ import java.util.stream.Collectors;
 public class AgentLoop {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLoop.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     private final String agentId;
     private final String conversationId;
@@ -162,7 +163,7 @@ public class AgentLoop {
                     if (output.getToolCalls() != null) {
                         for (AssistantMessage.ToolCall toolCall : output.getToolCalls()) {
                             try {
-                                JsonNode inputNode = objectMapper.readTree(toolCall.arguments());
+                                JsonNode inputNode = Json.MAPPER.readTree(toolCall.arguments());
                                 contentBlocks.add(new ContentBlock.ToolUse(
                                         toolCall.id(), toolCall.name(), inputNode));
                             } catch (Exception e) {
@@ -255,7 +256,7 @@ public class AgentLoop {
 
                     Object params;
                     try {
-                        params = objectMapper.treeToValue(toolUse.input(), tool.parameterType());
+                        params = Json.MAPPER.treeToValue(toolUse.input(), tool.parameterType());
                     } catch (Exception e) {
                         log.error("Failed to deserialize tool parameters for {}", toolUse.name(), e);
                         AgentToolResult<?> errorResult = AgentToolResult.error(

@@ -1,11 +1,12 @@
 package ai.newwave.agent.state.database;
 
+import ai.newwave.agent.util.Json;
+
 import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.model.ContentBlock;
 import ai.newwave.agent.model.MessageRole;
 import ai.newwave.agent.state.spi.ConversationStore;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -33,7 +34,7 @@ import java.util.List;
 public class JdbcConversationStore implements ConversationStore {
 
     private final JdbcTemplate jdbc;
-    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     public JdbcConversationStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -100,7 +101,7 @@ public class JdbcConversationStore implements ConversationStore {
 
     private String serialize(List<ContentBlock> content) {
         try {
-            return objectMapper.writeValueAsString(content);
+            return Json.MAPPER.writeValueAsString(content);
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize content blocks", e);
         }
@@ -108,7 +109,7 @@ public class JdbcConversationStore implements ConversationStore {
 
     private List<ContentBlock> deserialize(String json) {
         try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
+            return Json.MAPPER.readValue(json, new TypeReference<>() {});
         } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize content blocks", e);
         }

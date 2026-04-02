@@ -1,6 +1,7 @@
 package ai.newwave.agent.scheduling.aws;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import ai.newwave.agent.util.Json;
+
 import ai.newwave.agent.scheduling.ScheduleDispatcher;
 import ai.newwave.agent.scheduling.model.ScheduleType;
 import ai.newwave.agent.scheduling.model.ScheduledEvent;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SqsScheduleListener {
 
     private static final Logger log = LoggerFactory.getLogger(SqsScheduleListener.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     private final SqsClient sqsClient;
     private final String queueUrl;
@@ -93,7 +94,7 @@ public class SqsScheduleListener {
     private void processMessage(Message message) {
         try {
             AwsScheduleExecutor.SqsScheduleMessage scheduleMsg =
-                    objectMapper.readValue(message.body(), AwsScheduleExecutor.SqsScheduleMessage.class);
+                    Json.MAPPER.readValue(message.body(), AwsScheduleExecutor.SqsScheduleMessage.class);
 
             String eventId = scheduleMsg.eventId();
             log.info("Received schedule message for event: {}", eventId);

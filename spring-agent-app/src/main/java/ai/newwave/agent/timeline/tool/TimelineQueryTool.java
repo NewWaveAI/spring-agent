@@ -1,7 +1,8 @@
 package ai.newwave.agent.timeline.tool;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import ai.newwave.agent.timeline.TimelineService;
 import ai.newwave.agent.timeline.model.TimelineEvent;
@@ -20,7 +21,7 @@ import java.util.stream.Collectors;
  */
 public class TimelineQueryTool implements AgentTool<TimelineQueryParams, List<TimelineEvent>> {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     private final TimelineService timelineService;
 
@@ -46,7 +47,7 @@ public class TimelineQueryTool implements AgentTool<TimelineQueryParams, List<Ti
 
     @Override
     public JsonNode parameterSchema() {
-        ObjectNode schema = objectMapper.createObjectNode();
+        ObjectNode schema = Json.MAPPER.createObjectNode();
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
 

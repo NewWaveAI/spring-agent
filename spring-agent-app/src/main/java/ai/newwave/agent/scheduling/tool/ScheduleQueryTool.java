@@ -1,7 +1,8 @@
 package ai.newwave.agent.scheduling.tool;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import ai.newwave.agent.scheduling.ScheduleService;
 import ai.newwave.agent.scheduling.model.ScheduleType;
@@ -19,7 +20,7 @@ import java.util.stream.Collectors;
  */
 public class ScheduleQueryTool implements AgentTool<ScheduleQueryParams, List<ScheduledEvent>> {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     private final ScheduleService scheduleService;
 
@@ -45,7 +46,7 @@ public class ScheduleQueryTool implements AgentTool<ScheduleQueryParams, List<Sc
 
     @Override
     public JsonNode parameterSchema() {
-        ObjectNode schema = objectMapper.createObjectNode();
+        ObjectNode schema = Json.MAPPER.createObjectNode();
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
 

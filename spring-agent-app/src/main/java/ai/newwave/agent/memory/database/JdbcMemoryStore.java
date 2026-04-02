@@ -1,9 +1,10 @@
 package ai.newwave.agent.memory.database;
 
+import ai.newwave.agent.util.Json;
+
 import ai.newwave.agent.memory.model.Memory;
 import ai.newwave.agent.memory.spi.MemoryStore;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -29,7 +30,7 @@ import java.util.Set;
 public class JdbcMemoryStore implements MemoryStore {
 
     private final JdbcTemplate jdbc;
-    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     public JdbcMemoryStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -98,7 +99,7 @@ public class JdbcMemoryStore implements MemoryStore {
 
     private String serializeTags(Set<String> tags) {
         try {
-            return objectMapper.writeValueAsString(tags);
+            return Json.MAPPER.writeValueAsString(tags);
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize tags", e);
         }
@@ -107,7 +108,7 @@ public class JdbcMemoryStore implements MemoryStore {
     private Set<String> deserializeTags(String json) {
         if (json == null || json.isBlank()) return Set.of();
         try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
+            return Json.MAPPER.readValue(json, new TypeReference<>() {});
         } catch (Exception e) {
             return Set.of();
         }

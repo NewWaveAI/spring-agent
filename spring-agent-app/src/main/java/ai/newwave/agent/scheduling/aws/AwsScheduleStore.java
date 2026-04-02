@@ -1,7 +1,8 @@
 package ai.newwave.agent.scheduling.aws;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.newwave.agent.scheduling.model.RetryConfig;
 import ai.newwave.agent.scheduling.model.ScheduleType;
 import ai.newwave.agent.scheduling.model.ScheduledEvent;
@@ -32,7 +33,7 @@ import java.util.Map;
 public class AwsScheduleStore implements ScheduleStore {
 
     private static final Logger log = LoggerFactory.getLogger(AwsScheduleStore.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     private final DynamoDbClient dynamoDb;
     private final String tableName;
@@ -166,8 +167,8 @@ public class AwsScheduleStore implements ScheduleStore {
             item.put("scheduleExpression", AttributeValue.fromS(event.scheduleExpression()));
         item.put("timezone", AttributeValue.fromS(event.timezone()));
         try {
-            item.put("payload", AttributeValue.fromS(objectMapper.writeValueAsString(event.payload())));
-            item.put("retryConfig", AttributeValue.fromS(objectMapper.writeValueAsString(event.retryConfig())));
+            item.put("payload", AttributeValue.fromS(Json.MAPPER.writeValueAsString(event.payload())));
+            item.put("retryConfig", AttributeValue.fromS(Json.MAPPER.writeValueAsString(event.retryConfig())));
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize schedule event", e);
         }
@@ -185,9 +186,9 @@ public class AwsScheduleStore implements ScheduleStore {
                     .type(ScheduleType.valueOf(item.get("type").s()))
                     .scheduleExpression(item.containsKey("scheduleExpression") ? item.get("scheduleExpression").s() : null)
                     .timezone(item.get("timezone").s())
-                    .payload(objectMapper.readValue(item.get("payload").s(),
+                    .payload(Json.MAPPER.readValue(item.get("payload").s(),
                             ai.newwave.agent.scheduling.model.SchedulePayload.class))
-                    .retryConfig(objectMapper.readValue(item.get("retryConfig").s(), RetryConfig.class))
+                    .retryConfig(Json.MAPPER.readValue(item.get("retryConfig").s(), RetryConfig.class))
                     .createdAt(Instant.parse(item.get("createdAt").s()))
                     .nextFireTime(item.containsKey("nextFireTime") ? Instant.parse(item.get("nextFireTime").s()) : null)
                     .enabled(Boolean.parseBoolean(item.get("enabled").s()))

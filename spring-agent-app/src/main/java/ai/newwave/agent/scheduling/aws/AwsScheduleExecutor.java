@@ -1,7 +1,8 @@
 package ai.newwave.agent.scheduling.aws;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.newwave.agent.scheduling.model.ScheduleType;
 import ai.newwave.agent.scheduling.model.ScheduledEvent;
 import ai.newwave.agent.scheduling.spi.ScheduleExecutor;
@@ -21,7 +22,7 @@ import software.amazon.awssdk.services.scheduler.model.*;
 public class AwsScheduleExecutor implements ScheduleExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(AwsScheduleExecutor.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     private final SchedulerClient schedulerClient;
     private final ScheduleStore store;
@@ -49,7 +50,7 @@ public class AwsScheduleExecutor implements ScheduleExecutor {
             String expression = toAwsExpression(saved);
             String payload;
             try {
-                payload = objectMapper.writeValueAsString(
+                payload = Json.MAPPER.writeValueAsString(
                         new SqsScheduleMessage(saved.id(), saved.type().name()));
             } catch (JsonProcessingException e) {
                 throw new RuntimeException("Failed to serialize schedule message", e);

@@ -1,7 +1,8 @@
 package ai.newwave.agent.memory.tool;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import ai.newwave.agent.memory.MemoryService;
 import ai.newwave.agent.tool.AgentTool;
@@ -14,7 +15,7 @@ import reactor.core.publisher.Mono;
  */
 public class SaveMemoryTool implements AgentTool<SaveMemoryParams, String> {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
 
     private final MemoryService memoryService;
 
@@ -40,7 +41,7 @@ public class SaveMemoryTool implements AgentTool<SaveMemoryParams, String> {
 
     @Override
     public JsonNode parameterSchema() {
-        ObjectNode schema = objectMapper.createObjectNode();
+        ObjectNode schema = Json.MAPPER.createObjectNode();
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
 

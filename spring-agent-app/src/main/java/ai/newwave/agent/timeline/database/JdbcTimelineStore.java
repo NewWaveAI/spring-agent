@@ -1,7 +1,8 @@
 package ai.newwave.agent.timeline.database;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.newwave.agent.timeline.model.TimelineActor;
 import ai.newwave.agent.timeline.model.TimelineEvent;
 import ai.newwave.agent.timeline.model.TimelineQuery;
@@ -40,7 +41,7 @@ import java.util.Map;
  */
 public class JdbcTimelineStore implements TimelineStore {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
     private final JdbcTemplate jdbc;
 
     public JdbcTimelineStore(JdbcTemplate jdbc) {
@@ -144,11 +145,11 @@ public class JdbcTimelineStore implements TimelineStore {
             return TimelineEvent.builder()
                     .id(rs.getString("id"))
                     .timestamp(rs.getTimestamp("timestamp").toInstant())
-                    .actor(objectMapper.readValue(rs.getString("actor"), TimelineActor.class))
+                    .actor(Json.MAPPER.readValue(rs.getString("actor"), TimelineActor.class))
                     .eventType(rs.getString("event_type"))
                     .summary(rs.getString("summary"))
                     .metadata(rs.getString("metadata") != null
-                            ? objectMapper.readValue(rs.getString("metadata"), Map.class)
+                            ? Json.MAPPER.readValue(rs.getString("metadata"), Map.class)
                             : Map.of())
                     .agentId(rs.getString("agent_id"))
                     .conversationId(rs.getString("conversation_id"))
@@ -160,7 +161,7 @@ public class JdbcTimelineStore implements TimelineStore {
 
     private String serialize(Object obj) {
         try {
-            return objectMapper.writeValueAsString(obj);
+            return Json.MAPPER.writeValueAsString(obj);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Serialization failed", e);
         }

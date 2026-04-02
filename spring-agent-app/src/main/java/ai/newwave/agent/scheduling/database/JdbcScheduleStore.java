@@ -1,7 +1,8 @@
 package ai.newwave.agent.scheduling.database;
 
+import ai.newwave.agent.util.Json;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import ai.newwave.agent.scheduling.model.RetryConfig;
 import ai.newwave.agent.scheduling.model.SchedulePayload;
 import ai.newwave.agent.scheduling.model.ScheduleType;
@@ -40,7 +41,7 @@ import java.time.Instant;
  */
 public class JdbcScheduleStore implements ScheduleStore {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    
     private final JdbcTemplate jdbc;
 
     public JdbcScheduleStore(JdbcTemplate jdbc) {
@@ -131,8 +132,8 @@ public class JdbcScheduleStore implements ScheduleStore {
                     .type(ScheduleType.valueOf(rs.getString("type")))
                     .scheduleExpression(rs.getString("schedule_expression"))
                     .timezone(rs.getString("timezone"))
-                    .payload(objectMapper.readValue(rs.getString("payload"), SchedulePayload.class))
-                    .retryConfig(objectMapper.readValue(rs.getString("retry_config"), RetryConfig.class))
+                    .payload(Json.MAPPER.readValue(rs.getString("payload"), SchedulePayload.class))
+                    .retryConfig(Json.MAPPER.readValue(rs.getString("retry_config"), RetryConfig.class))
                     .createdAt(rs.getTimestamp("created_at").toInstant())
                     .nextFireTime(rs.getTimestamp("next_fire_time") != null ? rs.getTimestamp("next_fire_time").toInstant() : null)
                     .enabled(rs.getBoolean("enabled"))
@@ -144,7 +145,7 @@ public class JdbcScheduleStore implements ScheduleStore {
 
     private String serialize(Object obj) {
         try {
-            return objectMapper.writeValueAsString(obj);
+            return Json.MAPPER.writeValueAsString(obj);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Serialization failed", e);
         }

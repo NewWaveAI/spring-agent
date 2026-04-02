@@ -4,7 +4,9 @@
 
 ### Fixed
 - `ContentBlock` now has `@JsonTypeInfo` + `@JsonSubTypes` annotations for proper Jackson serialization/deserialization
-- All `ObjectMapper` instances now call `findAndRegisterModules()` for proper records + type info support (13 files)
+
+### Changed
+- Single shared `Json.MAPPER` (`ai.newwave.agent.util.Json`) replaces 13 separate ObjectMapper instances
 
 ### Changed
 - JDBC stores work with any database (PostgreSQL, MySQL, H2, etc.) — README updated accordingly
