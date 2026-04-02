@@ -11,6 +11,7 @@ public enum AgentEventType {
     MESSAGE_END("message_end"),
     TOOL_EXECUTION_START("tool_execution_start"),
     TOOL_EXECUTION_UPDATE("tool_execution_update"),
+    THINKING_UPDATE("thinking_update"),
     TOOL_EXECUTION_END("tool_execution_end"),
     SCHEDULE_FIRED("schedule_fired");
 

@@ -20,6 +20,7 @@ public sealed interface AgentEvent permits
         AgentEvent.MessageStart,
         AgentEvent.MessageUpdate,
         AgentEvent.MessageEnd,
+        AgentEvent.ThinkingUpdate,
         AgentEvent.ToolExecutionStart,
         AgentEvent.ToolExecutionUpdate,
         AgentEvent.ToolExecutionEnd,
@@ -69,6 +70,11 @@ public sealed interface AgentEvent permits
     record MessageEnd(Instant timestamp, String agentId, String conversationId, AgentMessage message) implements AgentEvent {
         public MessageEnd(String agentId, String conversationId, AgentMessage message) { this(Instant.now(), agentId, conversationId, message); }
         @Override public AgentEventType type() { return AgentEventType.MESSAGE_END; }
+    }
+
+    record ThinkingUpdate(Instant timestamp, String agentId, String conversationId, String delta) implements AgentEvent {
+        public ThinkingUpdate(String agentId, String conversationId, String delta) { this(Instant.now(), agentId, conversationId, delta); }
+        @Override public AgentEventType type() { return AgentEventType.THINKING_UPDATE; }
     }
 
     record ToolExecutionStart(Instant timestamp, String agentId, String conversationId, ContentBlock.ToolUse toolUse) implements AgentEvent {

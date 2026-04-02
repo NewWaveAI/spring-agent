@@ -132,6 +132,8 @@ public class AgentLoop {
 
                 List<ContentBlock> contentBlocks = new ArrayList<>();
                 StringBuilder textAccumulator = new StringBuilder();
+                StringBuilder thinkingAccumulator = new StringBuilder();
+                int[] thinkingLength = {0};
                 boolean[] messageStarted = {false};
 
                 stream.doOnNext(chatResponse -> {
@@ -169,18 +171,26 @@ public class AgentLoop {
                         }
                     }
 
-                    // Check for thinking content in metadata
+                    // Stream thinking deltas from metadata
                     Map<String, Object> metadata = output.getMetadata();
                     if (metadata != null && metadata.containsKey("reasoningContent")) {
                         Object reasoning = metadata.get("reasoningContent");
-                        if (reasoning instanceof String thinkingText) {
-                            contentBlocks.add(new ContentBlock.Thinking(thinkingText));
+                        if (reasoning instanceof String thinkingText && thinkingText.length() > thinkingLength[0]) {
+                            String thinkingDelta = thinkingText.substring(thinkingLength[0]);
+                            thinkingLength[0] = thinkingText.length();
+                            thinkingAccumulator.append(thinkingDelta);
+                            sink.tryEmitNext(new AgentEvent.ThinkingUpdate(agentId, conversationId, thinkingDelta));
                         }
                     }
                 }).doOnComplete(() -> {
-                    // Build final assistant message
+                    // Build final assistant message — thinking first, then text
+                    if (thinkingAccumulator.length() > 0) {
+                        contentBlocks.addFirst(new ContentBlock.Thinking(thinkingAccumulator.toString()));
+                    }
+                    int textInsertIndex = contentBlocks.isEmpty() ? 0 :
+                            (contentBlocks.getFirst() instanceof ContentBlock.Thinking ? 1 : 0);
                     if (textAccumulator.length() > 0) {
-                        contentBlocks.addFirst(new ContentBlock.Text(textAccumulator.toString()));
+                        contentBlocks.add(textInsertIndex, new ContentBlock.Text(textAccumulator.toString()));
                     }
 
                     AgentMessage assistantMessage = AgentMessage.assistant(contentBlocks);
@@ -342,10 +352,20 @@ public class AgentLoop {
                             })
                             .toList();
 
-                    result.add(AssistantMessage.builder()
+                    String thinking = msg.content().stream()
+                            .filter(b -> b instanceof ContentBlock.Thinking)
+                            .map(b -> ((ContentBlock.Thinking) b).thinking())
+                            .collect(Collectors.joining("\n"));
+
+                    var builder = AssistantMessage.builder()
                             .content(text)
-                            .toolCalls(toolCalls)
-                            .build());
+                            .toolCalls(toolCalls);
+
+                    if (!thinking.isEmpty()) {
+                        builder.properties(Map.of("reasoningContent", thinking));
+                    }
+
+                    result.add(builder.build());
                 }
                 case TOOL_RESULT -> {
                     for (ContentBlock block : msg.content()) {
