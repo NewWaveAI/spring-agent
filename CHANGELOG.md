@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.2.1] - 2026-04-02
+
+### Added
+- `AgentToolResult.terminatesLoop` flag — tools can signal the agent loop to stop after execution
+- `AgentToolResult.terminate(text)` and `terminate(text, details)` factory methods
+- 2 new tests in `AgentLoopTest` for loop termination behavior
+
+## [1.2.0] - 2026-04-02
+
+### Added
+- `ThinkingUpdate` event type — streams thinking deltas separately from text via SSE
+- `THINKING_UPDATE("thinking_update")` in `AgentEventType`
+- `AgentLoopTest` — 6 tests covering thinking/text separation and event ordering
+
+### Changed
+- Thinking content now streams incrementally as `ThinkingUpdate` events (not bundled into `MessageUpdate`)
+- Multi-turn context now includes thinking via `AssistantMessage.properties("reasoningContent")` for Anthropic compatibility
+- Final `AgentMessage` orders blocks as: `Thinking` → `Text` → `ToolUse`
+
 ## [1.1.1] - 2026-04-02
 
 ### Changed
