@@ -122,7 +122,7 @@ public class AgentLoop {
                                 log.info("Abort requested for {}:{}, stopping loop", agentId, conversationId);
                                 return Mono.<Void>empty();
                             }
-                            return Mono.<Void>just(null).then();
+                            return Mono.empty();
                         })
                     : Mono.empty();
 
