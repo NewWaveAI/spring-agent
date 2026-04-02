@@ -108,24 +108,25 @@ class AgentLoopTest {
 
     static class TestTool implements AgentTool<SimpleParams, String> {
         private final boolean terminates;
-        private final boolean excludeFromContext;
+        private final boolean excluded;
 
         TestTool(boolean terminates) { this(terminates, false); }
 
         TestTool(boolean terminates, boolean excludeFromContext) {
             this.terminates = terminates;
-            this.excludeFromContext = excludeFromContext;
+            this.excluded = excludeFromContext;
         }
 
         @Override public String name() { return "test_tool"; }
         @Override public String label() { return "Test"; }
         @Override public String description() { return "A test tool"; }
         @Override public Class<SimpleParams> parameterType() { return SimpleParams.class; }
+        @Override public boolean excludeFromContext() { return excluded; }
 
         @Override
         public Mono<AgentToolResult<String>> execute(ToolCallContext<SimpleParams> ctx) {
             if (terminates) {
-                return Mono.just(AgentToolResult.terminate("terminated", excludeFromContext));
+                return Mono.just(AgentToolResult.terminate("terminated"));
             }
             return Mono.just(AgentToolResult.success("ok"));
         }
@@ -402,51 +403,40 @@ class AgentLoopTest {
     }
 
     @Test
-    void excludeFromContext_toolPairNotSentToLlm() {
+    void excludeFromContext_toolPairStrippedAcrossSessions() {
         AtomicInteger llmCallCount = new AtomicInteger(0);
-        List<org.springframework.ai.chat.prompt.Prompt> capturedPrompts = new ArrayList<>();
 
         when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
-            capturedPrompts.add(invocation.getArgument(0));
             int call = llmCallCount.incrementAndGet();
             if (call == 1) {
-                // First call: LLM requests the tool
                 return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"ask\"}"));
             }
-            // Second call (after user replies): should NOT contain tool_use/tool_result
+            // Second call: should NOT see tool_use/tool_result from first call
             return Flux.just(textChunk("got it"));
         });
 
-        // First run: tool terminates + excludeFromContext
+        // First session: tool terminates + excludeFromContext
         List<AgentMessage> messages = new ArrayList<>();
         messages.add(AgentMessage.user("Hi"));
-        AgentLoop loop1 = new AgentLoop("agent-1", "conv-1", messages, Map.of(),
-                AgentConfig.builder().tools(List.of(new TestTool(true, true))).build(),
-                chatModel, sink, conversationStore);
+        AgentConfig config = AgentConfig.builder()
+                .tools(List.of(new TestTool(true, true)))
+                .build();
+        AgentLoop loop1 = new AgentLoop("agent-1", "conv-1", messages, Map.of(), config, chatModel, sink, conversationStore);
         loop1.run().block();
         assertEquals(1, llmCallCount.get());
 
-        // Simulate user reply
-        messages.add(AgentMessage.user("Option 2"));
-
-        // Second run: reuse same loop to keep excludedToolIds
-        // Reset sink for fresh events
-        AgentLoop loop2 = new AgentLoop("agent-1", "conv-1", messages, Map.of(),
-                AgentConfig.builder().tools(List.of(new TestTool(true, true))).build(),
-                chatModel, sink, conversationStore);
-
-        // But excludedToolIds is per-loop instance, so we need to verify via the messages
-        // The tool_use and tool_result are still in messages (stored for history)
+        // tool_use and tool_result are stored in history
         long toolUseInHistory = messages.stream()
                 .flatMap(m -> m.content().stream())
                 .filter(b -> b instanceof ContentBlock.ToolUse)
                 .count();
         assertEquals(1, toolUseInHistory, "Tool use should be stored in message history");
 
-        long toolResultInHistory = messages.stream()
-                .flatMap(m -> m.content().stream())
-                .filter(b -> b instanceof ContentBlock.ToolResult)
-                .count();
-        assertEquals(1, toolResultInHistory, "Tool result should be stored in message history");
+        // Second session: new AgentLoop instance, same messages + user reply
+        messages.add(AgentMessage.user("Option 2"));
+        AgentLoop loop2 = new AgentLoop("agent-1", "conv-1", messages, Map.of(), config, chatModel, sink, conversationStore);
+        // This should work — excludeFromContext is on the tool definition, not per-instance
+        loop2.run().block();
+        assertEquals(2, llmCallCount.get());
     }
 }

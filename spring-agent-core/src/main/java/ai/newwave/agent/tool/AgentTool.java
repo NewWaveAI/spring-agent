@@ -52,6 +52,16 @@ public interface AgentTool<P, D> {
     Class<P> parameterType();
 
     /**
+     * Whether this tool's tool_use/tool_result pair should be excluded from LLM context.
+     * The pair is still stored in conversation history but stripped when building messages
+     * for the LLM. Useful for tools like ask_user_question where the result has no value
+     * for the model.
+     */
+    default boolean excludeFromContext() {
+        return false;
+    }
+
+    /**
      * Execute the tool with the given context.
      */
     Mono<AgentToolResult<D>> execute(ToolCallContext<P> context);
