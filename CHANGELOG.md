@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.4] - 2026-04-02
+
+### Fixed
+- ContentBlock serialization now includes `"type"` discriminator via `Json.serializeContentBlocks()` using `writerFor(TypeReference<List<ContentBlock>>)`
+
+### Added
+- `Json.serializeContentBlocks()` and `Json.deserializeContentBlocks()` helpers
+- `ContentBlockSerializationTest` — roundtrip tests for all 4 ContentBlock subtypes
+
 ## [1.0.3] - 2026-04-02
 
 ### Changed

@@ -6,7 +6,6 @@ import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.model.ContentBlock;
 import ai.newwave.agent.model.MessageRole;
 import ai.newwave.agent.state.spi.ConversationStore;
-import com.fasterxml.jackson.core.type.TypeReference;
 import org.springframework.jdbc.core.JdbcTemplate;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -100,18 +99,10 @@ public class JdbcConversationStore implements ConversationStore {
     }
 
     private String serialize(List<ContentBlock> content) {
-        try {
-            return Json.MAPPER.writeValueAsString(content);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to serialize content blocks", e);
-        }
+        return Json.serializeContentBlocks(content);
     }
 
     private List<ContentBlock> deserialize(String json) {
-        try {
-            return Json.MAPPER.readValue(json, new TypeReference<>() {});
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to deserialize content blocks", e);
-        }
+        return Json.deserializeContentBlocks(json);
     }
 }
