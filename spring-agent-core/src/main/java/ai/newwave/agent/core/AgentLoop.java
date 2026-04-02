@@ -58,6 +58,7 @@ public class AgentLoop {
     private final ChatModel chatModel;
     private final Sinks.Many<AgentEvent> sink;
     private final ConversationStore conversationStore;
+    private volatile boolean shouldTerminate = false;
 
     public AgentLoop(
             String agentId,
@@ -115,6 +116,9 @@ public class AgentLoop {
                                     return executeTools(toolCalls, hookCtx)
                                             .then(Mono.defer(() -> {
                                                 sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
+                                                if (shouldTerminate) {
+                                                    return Mono.<Void>empty();
+                                                }
                                                 return innerLoop(turnNumber + 1);
                                             }));
                                 }));
@@ -291,6 +295,10 @@ public class AgentLoop {
                     AgentMessage resultMessage = AgentMessage.toolResult(
                             toolUse.id(), modifiedResult.content(), modifiedResult.isError());
                     addMessage(resultMessage);
+
+                    if (modifiedResult.terminatesLoop()) {
+                        shouldTerminate = true;
+                    }
 
                     sink.tryEmitNext(new AgentEvent.ToolExecutionEnd(agentId, conversationId, toolUse, modifiedResult));
                     return modifiedResult;

@@ -7,12 +7,19 @@ import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.model.ContentBlock;
 import ai.newwave.agent.model.ThinkingLevel;
 import ai.newwave.agent.state.spi.ConversationStore;
+import ai.newwave.agent.tool.AgentTool;
+import ai.newwave.agent.tool.AgentToolResult;
+import ai.newwave.agent.tool.ToolCallContext;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -20,11 +27,11 @@ import reactor.core.publisher.Sinks;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class AgentLoopTest {
 
@@ -45,12 +52,21 @@ class AgentLoopTest {
     }
 
     private AgentLoop createLoop(List<AgentMessage> messages) {
-        return createLoop(messages, ThinkingLevel.OFF);
+        return createLoop(messages, ThinkingLevel.OFF, List.of());
     }
 
     private AgentLoop createLoop(List<AgentMessage> messages, ThinkingLevel thinkingLevel) {
+        return createLoop(messages, thinkingLevel, List.of());
+    }
+
+    private AgentLoop createLoop(List<AgentMessage> messages, List<AgentTool<?, ?>> tools) {
+        return createLoop(messages, ThinkingLevel.OFF, tools);
+    }
+
+    private AgentLoop createLoop(List<AgentMessage> messages, ThinkingLevel thinkingLevel, List<AgentTool<?, ?>> tools) {
         AgentConfig config = AgentConfig.builder()
                 .thinkingLevel(thinkingLevel)
+                .tools(tools)
                 .build();
         return new AgentLoop("agent-1", "conv-1", messages, Map.of(), config, chatModel, sink, conversationStore);
     }
@@ -76,6 +92,36 @@ class AgentLoopTest {
                 .properties(Map.of("reasoningContent", accumulatedThinking))
                 .build();
         return ChatResponse.builder().generations(List.of(new Generation(output))).build();
+    }
+
+    private ChatResponse toolCallChunk(String toolId, String toolName, String argsJson) {
+        AssistantMessage output = AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall(toolId, "function", toolName, argsJson)))
+                .build();
+        return ChatResponse.builder().generations(List.of(new Generation(output))).build();
+    }
+
+    // Simple test tool
+    record SimpleParams(@JsonPropertyDescription("input") String input) {}
+
+    static class TestTool implements AgentTool<SimpleParams, String> {
+        private final boolean terminates;
+
+        TestTool(boolean terminates) { this.terminates = terminates; }
+
+        @Override public String name() { return "test_tool"; }
+        @Override public String label() { return "Test"; }
+        @Override public String description() { return "A test tool"; }
+        @Override public Class<SimpleParams> parameterType() { return SimpleParams.class; }
+
+        @Override
+        public Mono<AgentToolResult<String>> execute(ToolCallContext<SimpleParams> ctx) {
+            if (terminates) {
+                return Mono.just(AgentToolResult.terminate("terminated"));
+            }
+            return Mono.just(AgentToolResult.success("ok"));
+        }
     }
 
     // --- Tests ---
@@ -255,5 +301,58 @@ class AgentLoopTest {
                 AgentEventType.MESSAGE_UPDATE,
                 AgentEventType.MESSAGE_END
         ), messageEventTypes);
+    }
+
+    @Test
+    void terminatesLoop_stopsAfterToolExecution() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+
+        // First LLM call: returns a tool call
+        // Second LLM call: should NOT happen
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            int call = llmCallCount.incrementAndGet();
+            if (call == 1) {
+                return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"hello\"}"));
+            }
+            // If we get here, the loop didn't terminate
+            return Flux.just(textChunk("should not reach here"));
+        });
+
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("Hi"));
+        AgentLoop loop = createLoop(messages, List.of(new TestTool(true)));
+        loop.run().block();
+
+        // LLM should only be called once — loop terminated after tool
+        assertEquals(1, llmCallCount.get(), "Loop should stop after terminatesLoop tool");
+
+        // Verify tool execution events were emitted
+        long toolEndCount = collectedEvents.stream()
+                .filter(e -> e instanceof AgentEvent.ToolExecutionEnd)
+                .count();
+        assertEquals(1, toolEndCount);
+    }
+
+    @Test
+    void normalTool_loopContinues() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            int call = llmCallCount.incrementAndGet();
+            if (call == 1) {
+                // First call: LLM requests a tool
+                return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"hello\"}"));
+            }
+            // Second call: LLM responds with text (no more tools)
+            return Flux.just(textChunk("done"));
+        });
+
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("Hi"));
+        AgentLoop loop = createLoop(messages, List.of(new TestTool(false)));
+        loop.run().block();
+
+        // LLM should be called twice — tool doesn't terminate loop
+        assertEquals(2, llmCallCount.get(), "Loop should continue after normal tool");
     }
 }
