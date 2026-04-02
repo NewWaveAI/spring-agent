@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0] - 2026-04-01
+
+### Changed
+- Downgraded to Spring Boot 3.5.9 + Spring AI 1.1.4 for wider adoption
+- Removed Spring Milestones repository (Spring AI 1.1.4 is GA on Maven Central)
+- Thinking API: `thinkingEnabled()` → `thinking(AnthropicApi.ThinkingType.ENABLED, budgetTokens)`
+
 ## [0.3.0] - 2026-04-01
 
 ### Removed

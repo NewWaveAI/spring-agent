@@ -3,7 +3,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/ai.new-wave/spring-agent-core)](https://central.sonatype.com/artifact/ai.new-wave/spring-agent-core)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-A stateless AI agent client for Java, built on [Spring Boot 4](https://spring.io/projects/spring-boot) and [Spring AI 2](https://spring.io/projects/spring-ai). Designed for multi-tenant deployments behind a load balancer.
+A stateless AI agent client for Java, built on [Spring Boot 3](https://spring.io/projects/spring-boot) and [Spring AI](https://spring.io/projects/spring-ai). Designed for multi-tenant deployments behind a load balancer.
 
 No auto-configuration — you wire everything explicitly, like an SDK client.
 
@@ -17,8 +17,8 @@ No auto-configuration — you wire everything explicitly, like an SDK client.
 ## Requirements
 
 - Java 21+
-- Spring Boot 4.0+
-- Spring AI 2.0+
+- Spring Boot 3.5+
+- Spring AI 1.1+
 - PostgreSQL (for persistence)
 
 ---
@@ -44,19 +44,8 @@ ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>0.3.0</version>
+    <version>1.0.0</version>
 </dependency>
-```
-
-Spring AI milestone repository (until Spring AI 2.0 GA):
-
-```xml
-<repositories>
-    <repository>
-        <id>spring-milestones</id>
-        <url>https://repo.spring.io/milestone</url>
-    </repository>
-</repositories>
 ```
 
 ## Quick Start
@@ -551,7 +540,7 @@ ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsSc
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>0.3.0</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
