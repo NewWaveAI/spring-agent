@@ -13,6 +13,7 @@ import ai.newwave.agent.model.ContentBlock;
 import ai.newwave.agent.model.MessageRole;
 import ai.newwave.agent.model.ThinkingLevel;
 import ai.newwave.agent.model.ToolExecutionMode;
+import ai.newwave.agent.state.spi.ConversationStateManager;
 import ai.newwave.agent.state.spi.ConversationStore;
 import ai.newwave.agent.tool.AgentTool;
 import ai.newwave.agent.tool.AgentToolResult;
@@ -60,6 +61,7 @@ public class AgentLoop {
     private final ChatModel chatModel;
     private final Sinks.Many<AgentEvent> sink;
     private final ConversationStore conversationStore;
+    private final ConversationStateManager stateManager;
     private volatile boolean shouldTerminate = false;
 
     public AgentLoop(
@@ -72,6 +74,20 @@ public class AgentLoop {
             Sinks.Many<AgentEvent> sink,
             ConversationStore conversationStore
     ) {
+        this(agentId, conversationId, messages, attributes, config, chatModel, sink, conversationStore, null);
+    }
+
+    public AgentLoop(
+            String agentId,
+            String conversationId,
+            List<AgentMessage> messages,
+            Map<String, Object> attributes,
+            AgentConfig config,
+            ChatModel chatModel,
+            Sinks.Many<AgentEvent> sink,
+            ConversationStore conversationStore,
+            ConversationStateManager stateManager
+    ) {
         this.agentId = agentId;
         this.conversationId = conversationId;
         this.messages = messages;
@@ -80,6 +96,7 @@ public class AgentLoop {
         this.chatModel = chatModel;
         this.sink = sink;
         this.conversationStore = conversationStore;
+        this.stateManager = stateManager;
     }
 
     /**
@@ -96,6 +113,32 @@ public class AgentLoop {
                 log.warn("Max turns ({}) reached, stopping agent loop", loopConfig.maxTurns());
                 return Mono.empty();
             }
+
+            // Check abort status
+            Mono<Void> abortCheck = stateManager != null
+                    ? stateManager.isAborting(agentId, conversationId)
+                        .flatMap(aborting -> {
+                            if (aborting) {
+                                log.info("Abort requested for {}:{}, stopping loop", agentId, conversationId);
+                                return Mono.<Void>empty();
+                            }
+                            return Mono.<Void>just(null).then();
+                        })
+                    : Mono.empty();
+
+            // Drain steering messages
+            Mono<Void> drainSteering = stateManager != null
+                    ? stateManager.drainSteering(agentId, conversationId)
+                        .flatMap(steerMsg -> {
+                            addMessage(steerMsg);
+                            return Mono.<AgentMessage>empty();
+                        })
+                        .then()
+                    : Mono.empty();
+
+            return abortCheck
+                    .then(drainSteering)
+                    .then(Mono.defer(() -> {
 
             sink.tryEmitNext(new AgentEvent.TurnStart(agentId, conversationId, turnNumber));
 
@@ -125,6 +168,7 @@ public class AgentLoop {
                                             }));
                                 }));
                     });
+            }));
         });
     }
 
