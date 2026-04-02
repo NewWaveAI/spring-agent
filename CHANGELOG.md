@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.2.4] - 2026-04-02
+
+### Added
+- `AgentToolResult.excludeFromContext` flag — tool_use/tool_result pair stored in history but stripped from LLM context
+- `AgentToolResult.terminate(text, excludeFromContext)` factory method
+
+## [1.2.3] - 2026-04-02
+
+### Changed
+- Removed strict tool_use/tool_result pair matching — all blocks pass through to LLM
+
+### Added
+- `AgentLoopConfig.maxToolResultsInContext` — limit older tool pairs sent to LLM (default `0` = unlimited)
+
+## [1.2.2] - 2026-04-02
+
+### Added
+- `AgentLoopConfig.maxToolResultsInContext` config with tool_use/tool_result pair sanitization
+
 ## [1.2.1] - 2026-04-02
 
 ### Added
