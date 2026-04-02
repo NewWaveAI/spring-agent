@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
  */
 public class SearchMemoryTool implements AgentTool<SearchMemoryParams, List<Memory>> {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private final MemoryService memoryService;
 

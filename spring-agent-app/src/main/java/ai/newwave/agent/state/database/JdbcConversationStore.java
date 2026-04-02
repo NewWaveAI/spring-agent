@@ -33,7 +33,7 @@ import java.util.List;
 public class JdbcConversationStore implements ConversationStore {
 
     private final JdbcTemplate jdbc;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     public JdbcConversationStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;

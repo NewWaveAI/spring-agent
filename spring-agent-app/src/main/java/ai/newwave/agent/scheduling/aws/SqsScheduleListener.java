@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SqsScheduleListener {
 
     private static final Logger log = LoggerFactory.getLogger(SqsScheduleListener.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private final SqsClient sqsClient;
     private final String queueUrl;

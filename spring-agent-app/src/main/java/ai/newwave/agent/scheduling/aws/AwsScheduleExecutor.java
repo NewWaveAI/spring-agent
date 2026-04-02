@@ -21,7 +21,7 @@ import software.amazon.awssdk.services.scheduler.model.*;
 public class AwsScheduleExecutor implements ScheduleExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(AwsScheduleExecutor.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private final SchedulerClient schedulerClient;
     private final ScheduleStore store;

@@ -40,7 +40,7 @@ import java.time.Instant;
  */
 public class JdbcScheduleStore implements ScheduleStore {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final JdbcTemplate jdbc;
 
     public JdbcScheduleStore(JdbcTemplate jdbc) {

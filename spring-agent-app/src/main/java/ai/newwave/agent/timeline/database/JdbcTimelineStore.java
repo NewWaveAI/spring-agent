@@ -40,7 +40,7 @@ import java.util.Map;
  */
 public class JdbcTimelineStore implements TimelineStore {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
     private final JdbcTemplate jdbc;
 
     public JdbcTimelineStore(JdbcTemplate jdbc) {

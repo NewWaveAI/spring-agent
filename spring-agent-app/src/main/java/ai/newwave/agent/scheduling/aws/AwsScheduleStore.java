@@ -32,7 +32,7 @@ import java.util.Map;
 public class AwsScheduleStore implements ScheduleStore {
 
     private static final Logger log = LoggerFactory.getLogger(AwsScheduleStore.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private final DynamoDbClient dynamoDb;
     private final String tableName;

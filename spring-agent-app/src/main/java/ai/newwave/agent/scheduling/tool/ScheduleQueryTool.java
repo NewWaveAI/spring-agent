@@ -19,7 +19,7 @@ import java.util.stream.Collectors;
  */
 public class ScheduleQueryTool implements AgentTool<ScheduleQueryParams, List<ScheduledEvent>> {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private final ScheduleService scheduleService;
 

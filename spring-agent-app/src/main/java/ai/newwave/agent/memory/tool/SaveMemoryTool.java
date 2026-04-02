@@ -14,7 +14,7 @@ import reactor.core.publisher.Mono;
  */
 public class SaveMemoryTool implements AgentTool<SaveMemoryParams, String> {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private final MemoryService memoryService;
 

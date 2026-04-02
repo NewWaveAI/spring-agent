@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  */
 public class TimelineQueryTool implements AgentTool<TimelineQueryParams, List<TimelineEvent>> {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     private final TimelineService timelineService;
 

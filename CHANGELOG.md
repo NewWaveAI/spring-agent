@@ -1,9 +1,10 @@
 # Changelog
 
-## [1.0.1] - 2026-04-01
+## [1.0.2] - 2026-04-02
 
 ### Fixed
 - `ContentBlock` now has `@JsonTypeInfo` + `@JsonSubTypes` annotations for proper Jackson serialization/deserialization
+- All `ObjectMapper` instances now call `findAndRegisterModules()` for proper records + type info support (13 files)
 
 ### Changed
 - JDBC stores work with any database (PostgreSQL, MySQL, H2, etc.) — README updated accordingly

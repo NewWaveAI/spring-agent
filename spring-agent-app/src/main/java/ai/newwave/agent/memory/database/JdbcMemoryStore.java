@@ -29,7 +29,7 @@ import java.util.Set;
 public class JdbcMemoryStore implements MemoryStore {
 
     private final JdbcTemplate jdbc;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     public JdbcMemoryStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;

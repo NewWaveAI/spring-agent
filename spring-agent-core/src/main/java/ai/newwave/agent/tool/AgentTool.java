@@ -60,7 +60,7 @@ public interface AgentTool<P, D> {
  */
 class SchemaGenerator {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
 
     static JsonNode fromRecord(Class<?> recordType) {
         ObjectNode schema = MAPPER.createObjectNode();
