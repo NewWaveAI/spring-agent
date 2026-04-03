@@ -63,6 +63,8 @@ public class AgentLoop {
     private final ConversationStore conversationStore;
     private final ConversationStateManager stateManager;
     private volatile boolean shouldTerminate = false;
+    private long totalInputTokens = 0;
+    private long totalOutputTokens = 0;
 
     public AgentLoop(
             String agentId,
@@ -104,6 +106,13 @@ public class AgentLoop {
      */
     public Mono<Void> run() {
         return innerLoop(0);
+    }
+
+    /**
+     * Get accumulated token usage across all LLM calls in this loop.
+     */
+    public AgentEvent.TokenUsage getTokenUsage() {
+        return new AgentEvent.TokenUsage(totalInputTokens, totalOutputTokens);
     }
 
     private Mono<Void> innerLoop(int turnNumber) {
@@ -186,6 +195,17 @@ public class AgentLoop {
                 boolean[] messageStarted = {false};
 
                 stream.doOnNext(chatResponse -> {
+                    // Capture token usage (updated on each chunk, final chunk has totals)
+                    if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
+                        var usage = chatResponse.getMetadata().getUsage();
+                        if (usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
+                            totalInputTokens += usage.getPromptTokens();
+                        }
+                        if (usage.getCompletionTokens() != null && usage.getCompletionTokens() > 0) {
+                            totalOutputTokens += usage.getCompletionTokens();
+                        }
+                    }
+
                     Generation generation = chatResponse.getResult();
                     if (generation == null) return;
 

@@ -112,7 +112,7 @@ public class Agent {
                                 stateManager.release(agentId, conversationId)
                                         .doOnError(e -> log.error("Failed to release lock", e))
                                         .subscribe();
-                                sink.tryEmitNext(new AgentEvent.AgentEnd(agentId, conversationId));
+                                sink.tryEmitNext(new AgentEvent.AgentEnd(agentId, conversationId, loop.getTokenUsage()));
                                 sink.tryEmitComplete();
                             })
                             .doOnError(e -> {
@@ -177,7 +177,7 @@ public class Agent {
 
                     loop.run()
                             .doOnSuccess(v -> {
-                                sink.tryEmitNext(new AgentEvent.AgentEnd(agentId, conversationId));
+                                sink.tryEmitNext(new AgentEvent.AgentEnd(agentId, conversationId, loop.getTokenUsage()));
                                 sink.tryEmitComplete();
                             })
                             .doOnError(e -> {

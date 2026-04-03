@@ -41,9 +41,14 @@ public sealed interface AgentEvent permits
         @Override public AgentEventType type() { return AgentEventType.AGENT_START; }
     }
 
-    record AgentEnd(Instant timestamp, String agentId, String conversationId, String error) implements AgentEvent {
-        public AgentEnd(String agentId, String conversationId) { this(Instant.now(), agentId, conversationId, null); }
-        public AgentEnd(String agentId, String conversationId, String error) { this(Instant.now(), agentId, conversationId, error); }
+    record TokenUsage(long inputTokens, long outputTokens) {
+        public long totalTokens() { return inputTokens + outputTokens; }
+    }
+
+    record AgentEnd(Instant timestamp, String agentId, String conversationId, String error, TokenUsage usage) implements AgentEvent {
+        public AgentEnd(String agentId, String conversationId) { this(Instant.now(), agentId, conversationId, null, null); }
+        public AgentEnd(String agentId, String conversationId, String error) { this(Instant.now(), agentId, conversationId, error, null); }
+        public AgentEnd(String agentId, String conversationId, TokenUsage usage) { this(Instant.now(), agentId, conversationId, null, usage); }
         @Override public AgentEventType type() { return AgentEventType.AGENT_END; }
     }
 
