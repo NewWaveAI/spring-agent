@@ -183,7 +183,6 @@ public class AgentLoop {
                 List<ContentBlock> contentBlocks = new ArrayList<>();
                 StringBuilder textAccumulator = new StringBuilder();
                 StringBuilder thinkingAccumulator = new StringBuilder();
-                int[] thinkingLength = {0};
                 boolean[] messageStarted = {false};
 
                 stream.doOnNext(chatResponse -> {
@@ -202,12 +201,18 @@ public class AgentLoop {
                     }
 
                     // Process text content — skip if this chunk is thinking content
+                    // Spring AI marks thinking chunks with a "signature" metadata key
                     String text = output.getText();
                     Map<String, Object> metadata = output.getMetadata();
-                    boolean isThinkingChunk = metadata != null && metadata.containsKey("reasoningContent");
-                    if (text != null && !text.isEmpty() && !isThinkingChunk) {
-                        textAccumulator.append(text);
-                        sink.tryEmitNext(new AgentEvent.MessageUpdate(agentId, conversationId, text));
+                    boolean isThinkingChunk = metadata != null && metadata.containsKey("signature");
+                    if (text != null && !text.isEmpty()) {
+                        if (isThinkingChunk) {
+                            thinkingAccumulator.append(text);
+                            sink.tryEmitNext(new AgentEvent.ThinkingUpdate(agentId, conversationId, text));
+                        } else {
+                            textAccumulator.append(text);
+                            sink.tryEmitNext(new AgentEvent.MessageUpdate(agentId, conversationId, text));
+                        }
                     }
 
                     // Check for tool calls in metadata
@@ -223,16 +228,7 @@ public class AgentLoop {
                         }
                     }
 
-                    // Stream thinking deltas from metadata
-                    if (metadata != null && metadata.containsKey("reasoningContent")) {
-                        Object reasoning = metadata.get("reasoningContent");
-                        if (reasoning instanceof String thinkingText && thinkingText.length() > thinkingLength[0]) {
-                            String thinkingDelta = thinkingText.substring(thinkingLength[0]);
-                            thinkingLength[0] = thinkingText.length();
-                            thinkingAccumulator.append(thinkingDelta);
-                            sink.tryEmitNext(new AgentEvent.ThinkingUpdate(agentId, conversationId, thinkingDelta));
-                        }
-                    }
+                    // Note: thinking deltas are handled above via the "signature" metadata key check
                 }).doOnComplete(() -> {
                     // Build final assistant message — thinking first, then text
                     if (thinkingAccumulator.length() > 0) {

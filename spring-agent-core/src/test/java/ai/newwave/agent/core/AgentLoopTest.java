@@ -79,18 +79,10 @@ class AgentLoopTest {
         return ChatResponse.builder().generations(List.of(new Generation(output))).build();
     }
 
-    private ChatResponse thinkingChunk(String accumulatedThinking) {
+    private ChatResponse thinkingChunk(String thinkingDelta) {
         AssistantMessage output = AssistantMessage.builder()
-                .content("")
-                .properties(Map.of("reasoningContent", accumulatedThinking))
-                .build();
-        return ChatResponse.builder().generations(List.of(new Generation(output))).build();
-    }
-
-    private ChatResponse thinkingAndTextChunk(String accumulatedThinking, String text) {
-        AssistantMessage output = AssistantMessage.builder()
-                .content(text)
-                .properties(Map.of("reasoningContent", accumulatedThinking))
+                .content(thinkingDelta)
+                .properties(Map.of("signature", "sig"))
                 .build();
         return ChatResponse.builder().generations(List.of(new Generation(output))).build();
     }
@@ -164,11 +156,11 @@ class AgentLoopTest {
 
     @Test
     void thinkingOnly_emitsThinkingUpdateEvents() {
-        // Spring AI accumulates thinking — each chunk has full thinking so far
+        // Spring AI sends thinking as getText() with "signature" metadata per chunk
         when(chatModel.stream(any(org.springframework.ai.chat.prompt.Prompt.class))).thenReturn(Flux.just(
                 thinkingChunk("Let me"),
-                thinkingChunk("Let me think"),
-                thinkingChunk("Let me think about this")
+                thinkingChunk(" think"),
+                thinkingChunk(" about this")
         ));
 
         List<AgentMessage> messages = new ArrayList<>();
@@ -198,7 +190,7 @@ class AgentLoopTest {
         // Thinking comes first in separate chunks, then text in separate chunks
         when(chatModel.stream(any(org.springframework.ai.chat.prompt.Prompt.class))).thenReturn(Flux.just(
                 thinkingChunk("I should greet"),
-                thinkingChunk("I should greet the user"),
+                thinkingChunk(" the user"),
                 textChunk("Hello!"),
                 textChunk(" How are you?")
         ));
