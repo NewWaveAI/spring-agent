@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0] - 2026-04-03
+
+### Added
+- `AgentEvent.TokenUsage` record (`inputTokens`, `outputTokens`, `totalTokens()`)
+- `AgentEnd` now carries `TokenUsage` — accumulated across all LLM calls in the loop
+- `AgentLoop.getTokenUsage()` — exposes accumulated token counts
+- Token usage captured from `ChatResponse.getMetadata().getUsage()` per streaming chunk
+
+## [1.3.2] - 2026-04-02
+
+### Fixed
+- Use `signature` metadata key for thinking detection instead of `reasoningContent`
+- Thinking content now correctly routed through `getText()` with `signature` metadata check
+- Removed stale `reasoningContent`-based thinking extraction (was duplicating or missing thinking)
+
 ## [1.3.1] - 2026-04-02
 
 ### Fixed
