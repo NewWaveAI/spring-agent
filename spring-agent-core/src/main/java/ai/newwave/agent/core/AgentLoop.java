@@ -112,7 +112,7 @@ public class AgentLoop {
      * Get accumulated token usage across all LLM calls in this loop.
      */
     public AgentEvent.TokenUsage getTokenUsage() {
-        return new AgentEvent.TokenUsage(totalInputTokens, totalOutputTokens);
+        return new AgentEvent.TokenUsage(config.model(), totalInputTokens, totalOutputTokens);
     }
 
     private Mono<Void> innerLoop(int turnNumber) {

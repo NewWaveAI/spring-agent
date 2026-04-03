@@ -41,7 +41,7 @@ public sealed interface AgentEvent permits
         @Override public AgentEventType type() { return AgentEventType.AGENT_START; }
     }
 
-    record TokenUsage(long inputTokens, long outputTokens) {
+    record TokenUsage(String model, long inputTokens, long outputTokens) {
         public long totalTokens() { return inputTokens + outputTokens; }
     }
 
