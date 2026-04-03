@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.1] - 2026-04-02
+
+### Fixed
+- Skip `output.getText()` on thinking chunks to prevent thinking content leaking into `MessageUpdate` events
+- Clean up abort check return type in `AgentLoop`
+
 ## [1.3.0] - 2026-04-02
 
 ### Added
