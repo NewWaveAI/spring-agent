@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.0] - 2026-04-04
+
+### Added
+- `PromptBuilder` SPI — strategy interface for building LLM prompts per provider
+- `AnthropicPromptBuilder` — Anthropic implementation with `SYSTEM_AND_TOOLS` prompt caching enabled by default
+- Multi-model support — plug in any LLM provider by implementing `PromptBuilder`
+
+### Changed
+- `AgentConfig.sessionId` replaced with `AgentConfig.promptBuilder` (default: `AnthropicPromptBuilder`)
+- `AgentLoop` no longer imports Anthropic classes directly — delegates to configured `PromptBuilder`
+
+### Removed
+- `AgentConfig.sessionId` field (was unused)
+
+## [1.4.1] - 2026-04-03
+
+### Changed
+- `TokenUsage` now includes `model` field from `AgentConfig.model()`
+
 ## [1.4.0] - 2026-04-03
 
 ### Added

@@ -28,9 +28,9 @@ No auto-configuration — you wire everything explicitly, like an SDK client.
 ## Package Structure
 
 ```
-ai.newwave.agent.core           Agent, AgentRequest, AgentLoop
+ai.newwave.agent.core           Agent, AgentRequest, AgentLoop, PromptBuilder, AnthropicPromptBuilder
 ai.newwave.agent.config         AgentConfig, AgentHooks, HookContext, AgentLoopConfig, CompositeAgentHooks
-ai.newwave.agent.event          AgentEvent, AgentEventType
+ai.newwave.agent.event          AgentEvent, AgentEvent.TokenUsage, AgentEventType
 ai.newwave.agent.tool           AgentTool, AgentToolResult, ToolCallContext
 ai.newwave.agent.model          AgentMessage, ContentBlock, ThinkingLevel, MessageRole, ToolExecutionMode
 ai.newwave.agent.state.spi      ConversationStore, ConversationStateManager
@@ -47,7 +47,7 @@ ai.newwave.agent.compaction.spi CompactionStrategy, TokenEstimator
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-core</artifactId>
-    <version>1.3.0</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
@@ -371,7 +371,8 @@ All events are emitted as a `Flux<AgentEvent>` from `agent.stream()`. Every even
 | Enum | Wire Value | Record | Key Fields |
 |------|-----------|--------|-----------|
 | `AGENT_START` | `agent_start` | `AgentStart` | |
-| `AGENT_END` | `agent_end` | `AgentEnd` | `error` |
+| `AGENT_END` | `agent_end` | `AgentEnd` | `error`, `usage` (TokenUsage) |
+| `THINKING_UPDATE` | `thinking_update` | `ThinkingUpdate` | `delta` |
 | `TURN_START` | `turn_start` | `TurnStart` | `turnNumber` |
 | `TURN_END` | `turn_end` | `TurnEnd` | `turnNumber` |
 | `MESSAGE_START` | `message_start` | `MessageStart` | `message` |
@@ -384,14 +385,33 @@ All events are emitted as a `Flux<AgentEvent>` from `agent.stream()`. Every even
 
 Use `event.type()` for enum comparison, `event.type().value()` for the wire string (SSE event names).
 
+### Token Usage
+
+`AgentEnd` carries a `TokenUsage` record with accumulated token counts across all LLM calls in the loop:
+
+```java
+agent.stream(request)
+    .doOnNext(event -> {
+        if (event instanceof AgentEvent.AgentEnd end && end.usage() != null) {
+            log.info("Model: {}, Input: {}, Output: {}, Total: {}",
+                end.usage().model(),
+                end.usage().inputTokens(),
+                end.usage().outputTokens(),
+                end.usage().totalTokens());
+        }
+    })
+    .subscribe();
+```
+
 ### Consuming Events
 
 ```java
 agent.stream(request)
     .doOnNext(event -> switch (event) {
+        case AgentEvent.ThinkingUpdate e   -> System.out.print("[thinking] " + e.delta());
         case AgentEvent.MessageUpdate e    -> System.out.print(e.delta());
         case AgentEvent.ToolExecutionEnd e -> log.info("Tool {} done", e.toolUse().name());
-        case AgentEvent.AgentEnd e         -> log.info("Done (error={})", e.error());
+        case AgentEvent.AgentEnd e         -> log.info("Done (tokens={})", e.usage().totalTokens());
         default -> {}
     })
     .subscribe();
@@ -457,12 +477,12 @@ AgentConfig config = AgentConfig.builder()
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `systemPrompt` | `String` | `"You are a helpful assistant."` | System prompt |
-| `model` | `String` | `"claude-sonnet-4-20250514"` | Model identifier |
+| `model` | `String` | `"claude-sonnet-4-6"` | Model identifier |
 | `thinkingLevel` | `ThinkingLevel` | `OFF` | Extended thinking level |
 | `maxTokens` | `int` | `8192` | Max output tokens per LLM call |
 | `tools` | `List<AgentTool<?, ?>>` | empty | Available tools |
 | `loopConfig` | `AgentLoopConfig` | defaults | Loop settings (maxTurns, toolExecutionMode, hooks) |
-| `sessionId` | `String` | null | Optional session ID for cache-aware backends |
+| `promptBuilder` | `PromptBuilder` | `AnthropicPromptBuilder` | Strategy for building LLM prompts |
 
 ### AgentLoopConfig
 
@@ -471,6 +491,35 @@ AgentConfig config = AgentConfig.builder()
 | `maxTurns` | `int` | `25` | Max LLM turns per `stream()` call |
 | `toolExecutionMode` | `ToolExecutionMode` | `PARALLEL` | `PARALLEL` or `SEQUENTIAL` |
 | `hooks` | `AgentHooks` | no-op | Lifecycle hooks |
+| `maxToolResultsInContext` | `int` | `0` (unlimited) | Max recent tool pairs sent to LLM |
+
+### PromptBuilder
+
+Strategy for building provider-specific prompts. Default `AnthropicPromptBuilder` includes prompt caching (`SYSTEM_AND_TOOLS` strategy — caches system prompt and tool definitions across turns).
+
+```java
+// Default — Anthropic with prompt caching
+AgentConfig.builder().build(); // uses AnthropicPromptBuilder
+
+// Custom provider
+AgentConfig.builder()
+        .promptBuilder(new MyOpenAiPromptBuilder())
+        .model("gpt-4.1")
+        .build();
+```
+
+Implement `PromptBuilder` for custom providers:
+
+```java
+import ai.newwave.agent.core.PromptBuilder;
+
+public class MyOpenAiPromptBuilder implements PromptBuilder {
+    @Override
+    public Prompt buildPrompt(List<Message> messages, AgentConfig config, List<ToolCallback> toolCallbacks) {
+        // Build provider-specific prompt
+    }
+}
+```
 
 ### ThinkingLevel
 
@@ -618,7 +667,7 @@ ai.newwave.agent.scheduling.aws     AwsScheduleExecutor, AwsScheduleStore, SqsSc
 <dependency>
     <groupId>ai.new-wave</groupId>
     <artifactId>spring-agent-app</artifactId>
-    <version>1.3.0</version>
+    <version>1.5.0</version>
 </dependency>
 ```
 
