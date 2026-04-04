@@ -1,5 +1,7 @@
 package ai.newwave.agent.config;
 
+import ai.newwave.agent.core.AnthropicPromptBuilder;
+import ai.newwave.agent.core.PromptBuilder;
 import ai.newwave.agent.model.ThinkingLevel;
 import ai.newwave.agent.tool.AgentTool;
 
@@ -10,12 +12,12 @@ import java.util.List;
  * Top-level configuration for an Agent instance.
  *
  * @param systemPrompt  System instructions for the LLM
- * @param model         Model identifier (e.g. "claude-sonnet-4-20250514")
+ * @param model         Model identifier (e.g. "claude-sonnet-4-6")
  * @param thinkingLevel Thinking/reasoning level
  * @param maxTokens     Maximum output tokens
  * @param tools         Available tools
  * @param loopConfig    Agent loop configuration
- * @param sessionId     Optional session ID for cache-aware backends
+ * @param promptBuilder Strategy for building LLM prompts (default: Anthropic with caching)
  */
 public record AgentConfig(
         String systemPrompt,
@@ -24,7 +26,7 @@ public record AgentConfig(
         int maxTokens,
         List<AgentTool<?, ?>> tools,
         AgentLoopConfig loopConfig,
-        String sessionId
+        PromptBuilder promptBuilder
 ) {
 
     public static Builder builder() {
@@ -38,7 +40,7 @@ public record AgentConfig(
         private int maxTokens = 8192;
         private List<AgentTool<?, ?>> tools = new ArrayList<>();
         private AgentLoopConfig loopConfig = AgentLoopConfig.defaults();
-        private String sessionId;
+        private PromptBuilder promptBuilder = new AnthropicPromptBuilder();
 
         public Builder systemPrompt(String systemPrompt) {
             this.systemPrompt = systemPrompt;
@@ -75,13 +77,13 @@ public record AgentConfig(
             return this;
         }
 
-        public Builder sessionId(String sessionId) {
-            this.sessionId = sessionId;
+        public Builder promptBuilder(PromptBuilder promptBuilder) {
+            this.promptBuilder = promptBuilder;
             return this;
         }
 
         public AgentConfig build() {
-            return new AgentConfig(systemPrompt, model, thinkingLevel, maxTokens, tools, loopConfig, sessionId);
+            return new AgentConfig(systemPrompt, model, thinkingLevel, maxTokens, tools, loopConfig, promptBuilder);
         }
     }
 }

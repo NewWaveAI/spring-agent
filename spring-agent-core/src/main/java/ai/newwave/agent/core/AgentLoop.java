@@ -11,7 +11,6 @@ import ai.newwave.agent.event.AgentEvent;
 import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.model.ContentBlock;
 import ai.newwave.agent.model.MessageRole;
-import ai.newwave.agent.model.ThinkingLevel;
 import ai.newwave.agent.model.ToolExecutionMode;
 import ai.newwave.agent.state.spi.ConversationStateManager;
 import ai.newwave.agent.state.spi.ConversationStore;
@@ -20,11 +19,8 @@ import ai.newwave.agent.tool.AgentToolResult;
 import ai.newwave.agent.tool.ToolCallContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.anthropic.AnthropicChatOptions;
-import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -581,28 +577,11 @@ public class AgentLoop {
     }
 
     private Prompt buildPrompt(List<Message> messages) {
-        List<Message> allMessages = new ArrayList<>();
-        allMessages.add(new SystemMessage(config.systemPrompt()));
-        allMessages.addAll(messages);
-
-        var optionsBuilder = AnthropicChatOptions.builder()
-                .model(config.model())
-                .maxTokens(config.maxTokens());
-
-        if (config.thinkingLevel() != ThinkingLevel.OFF) {
-            optionsBuilder.thinking(AnthropicApi.ThinkingType.ENABLED, config.thinkingLevel().getBudgetTokens());
-            optionsBuilder.temperature(1.0);
-        }
-
-        if (!config.tools().isEmpty()) {
-            List<ToolCallback> callbacks = config.tools().stream()
-                    .map(AgentToolCallbackAdapter::new)
-                    .map(a -> (ToolCallback) a)
-                    .toList();
-            optionsBuilder.toolCallbacks(callbacks);
-            optionsBuilder.internalToolExecutionEnabled(false);
-        }
-
-        return new Prompt(allMessages, optionsBuilder.build());
+        List<ToolCallback> toolCallbacks = config.tools().isEmpty() ? List.of() :
+                config.tools().stream()
+                        .map(AgentToolCallbackAdapter::new)
+                        .map(a -> (ToolCallback) a)
+                        .toList();
+        return config.promptBuilder().buildPrompt(messages, config, toolCallbacks);
     }
 }
