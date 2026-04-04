@@ -43,3 +43,4 @@ build/
 
 ### Claude ###
 .claude/
+META-INF/
