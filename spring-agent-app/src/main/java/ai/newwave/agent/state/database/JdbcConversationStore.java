@@ -15,7 +15,7 @@ import java.util.List;
 
 /**
  * JDBC-backed conversation store.
- *
+ * <p>
  * Required table:
  * <pre>
  * CREATE TABLE conversation_messages (
@@ -25,15 +25,20 @@ import java.util.List;
  *     role VARCHAR(50) NOT NULL,
  *     content TEXT NOT NULL,
  *     timestamp TIMESTAMP NOT NULL,
- *     sequence INT NOT NULL
+ *     sequence BIGINT GENERATED ALWAYS AS IDENTITY
  * );
  * CREATE INDEX idx_conv_agent_conversation ON conversation_messages (agent_id, conversation_id, sequence);
  * </pre>
+ *
+ * The {@code sequence} column is assigned by the database on insert. Tools running in
+ * {@code ToolExecutionMode.PARALLEL} can append concurrently; the DB serializes the assignment,
+ * so each row gets a unique, monotonic value. Read order follows insert order via
+ * {@code ORDER BY sequence}.
  */
 public class JdbcConversationStore implements ConversationStore {
 
     private final JdbcTemplate jdbc;
-    
+
 
     public JdbcConversationStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -41,16 +46,12 @@ public class JdbcConversationStore implements ConversationStore {
 
     @Override
     public Mono<Void> appendMessage(String agentId, String conversationId, AgentMessage message) {
-        return Mono.fromRunnable(() -> {
-            int sequence = jdbc.queryForObject(
-                    "SELECT COALESCE(MAX(sequence), -1) + 1 FROM conversation_messages WHERE agent_id = ? AND conversation_id = ?",
-                    Integer.class, agentId, conversationId);
-            jdbc.update(
-                    "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp, sequence) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    message.id(), agentId, conversationId, message.role().name(),
-                    serialize(message.content()),
-                    Timestamp.from(message.timestamp()), sequence);
-        });
+        return Mono.fromRunnable(() ->
+                jdbc.update(
+                        "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+                        message.id(), agentId, conversationId, message.role().name(),
+                        serialize(message.content()),
+                        Timestamp.from(message.timestamp())));
     }
 
     @Override
@@ -72,13 +73,12 @@ public class JdbcConversationStore implements ConversationStore {
     public Mono<Void> replaceMessages(String agentId, String conversationId, List<AgentMessage> messages) {
         return Mono.fromRunnable(() -> {
             jdbc.update("DELETE FROM conversation_messages WHERE agent_id = ? AND conversation_id = ?", agentId, conversationId);
-            for (int i = 0; i < messages.size(); i++) {
-                AgentMessage msg = messages.get(i);
+            for (AgentMessage msg : messages) {
                 jdbc.update(
-                        "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp, sequence) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
                         msg.id(), agentId, conversationId, msg.role().name(),
                         serialize(msg.content()),
-                        Timestamp.from(msg.timestamp()), i);
+                        Timestamp.from(msg.timestamp()));
             }
         });
     }

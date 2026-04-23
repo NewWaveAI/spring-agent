@@ -1,7 +1,6 @@
 package ai.newwave.agent.state.r2dbc;
 
 import ai.newwave.agent.model.AgentMessage;
-import ai.newwave.agent.model.ContentBlock;
 import ai.newwave.agent.model.MessageRole;
 import ai.newwave.agent.state.spi.ConversationStore;
 import ai.newwave.agent.util.Json;
@@ -14,7 +13,7 @@ import java.util.List;
 
 /**
  * R2DBC-backed conversation store. Fully non-blocking.
- *
+ * <p>
  * Required table:
  * <pre>
  * CREATE TABLE conversation_messages (
@@ -24,10 +23,15 @@ import java.util.List;
  *     role VARCHAR(50) NOT NULL,
  *     content TEXT NOT NULL,
  *     timestamp TIMESTAMP NOT NULL,
- *     sequence INT NOT NULL
+ *     sequence BIGINT GENERATED ALWAYS AS IDENTITY
  * );
  * CREATE INDEX idx_conv_agent_conversation ON conversation_messages (agent_id, conversation_id, sequence);
  * </pre>
+ *
+ * The {@code sequence} column is assigned by the database on insert. Tools running in
+ * {@code ToolExecutionMode.PARALLEL} can append concurrently; the DB serializes the assignment,
+ * so each row gets a unique, monotonic value. Read order follows insert order via
+ * {@code ORDER BY sequence}.
  */
 public class R2dbcConversationStore implements ConversationStore {
 
@@ -39,21 +43,14 @@ public class R2dbcConversationStore implements ConversationStore {
 
     @Override
     public Mono<Void> appendMessage(String agentId, String conversationId, AgentMessage message) {
-        return db.sql("SELECT COALESCE(MAX(sequence), -1) + 1 FROM conversation_messages WHERE agent_id = :agentId AND conversation_id = :conversationId")
+        return db.sql("INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (:id, :agentId, :conversationId, :role, :content, :timestamp)")
+                .bind("id", message.id())
                 .bind("agentId", agentId)
                 .bind("conversationId", conversationId)
-                .map(row -> row.get(0, Integer.class))
-                .one()
-                .defaultIfEmpty(0)
-                .flatMap(sequence -> db.sql("INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp, sequence) VALUES (:id, :agentId, :conversationId, :role, :content, :timestamp, :sequence)")
-                        .bind("id", message.id())
-                        .bind("agentId", agentId)
-                        .bind("conversationId", conversationId)
-                        .bind("role", message.role().name())
-                        .bind("content", Json.serializeContentBlocks(message.content()))
-                        .bind("timestamp", message.timestamp())
-                        .bind("sequence", sequence)
-                        .then());
+                .bind("role", message.role().name())
+                .bind("content", Json.serializeContentBlocks(message.content()))
+                .bind("timestamp", message.timestamp())
+                .then();
     }
 
     @Override
@@ -75,19 +72,15 @@ public class R2dbcConversationStore implements ConversationStore {
                 .bind("agentId", agentId)
                 .bind("conversationId", conversationId)
                 .then()
-                .thenMany(Flux.range(0, messages.size())
-                        .flatMap(i -> {
-                            AgentMessage msg = messages.get(i);
-                            return db.sql("INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp, sequence) VALUES (:id, :agentId, :conversationId, :role, :content, :timestamp, :sequence)")
-                                    .bind("id", msg.id())
-                                    .bind("agentId", agentId)
-                                    .bind("conversationId", conversationId)
-                                    .bind("role", msg.role().name())
-                                    .bind("content", Json.serializeContentBlocks(msg.content()))
-                                    .bind("timestamp", msg.timestamp())
-                                    .bind("sequence", i)
-                                    .then();
-                        }))
+                .thenMany(Flux.fromIterable(messages)
+                        .concatMap(msg -> db.sql("INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (:id, :agentId, :conversationId, :role, :content, :timestamp)")
+                                .bind("id", msg.id())
+                                .bind("agentId", agentId)
+                                .bind("conversationId", conversationId)
+                                .bind("role", msg.role().name())
+                                .bind("content", Json.serializeContentBlocks(msg.content()))
+                                .bind("timestamp", msg.timestamp())
+                                .then()))
                 .then();
     }
 

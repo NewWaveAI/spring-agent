@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.1] - 2026-04-23
+
+### Fixed
+- `R2dbcConversationStore` and `JdbcConversationStore` race under parallel tool execution — `SELECT MAX(sequence)+1` then `INSERT` could assign the same sequence to concurrent appends, which `ORDER BY sequence` then returned in undefined order (e.g. `TOOL_RESULT` before `ASSISTANT` → Anthropic 400)
+- `R2dbcConversationStore.replaceMessages` switched from `flatMap` to `concatMap` so inserts commit in list order
+
+### Changed
+- `conversation_messages.sequence` is now assigned by the database (`BIGINT GENERATED ALWAYS AS IDENTITY`) instead of computed by the client. Migration for existing deployments (Postgres):
+  ```sql
+  -- 1. Drop the NOT NULL constraint so new inserts can omit the column
+  ALTER TABLE conversation_messages ALTER COLUMN sequence DROP NOT NULL;
+  -- 2. Convert to IDENTITY, continuing from the current max
+  DO $$ DECLARE next_seq BIGINT;
+  BEGIN
+    SELECT COALESCE(MAX(sequence), 0) + 1 INTO next_seq FROM conversation_messages;
+    EXECUTE format('ALTER TABLE conversation_messages ALTER COLUMN sequence TYPE BIGINT, ALTER COLUMN sequence ADD GENERATED ALWAYS AS IDENTITY (START WITH %s)', next_seq);
+  END $$;
+  ```
+
 ## [1.5.0] - 2026-04-04
 
 ### Added
