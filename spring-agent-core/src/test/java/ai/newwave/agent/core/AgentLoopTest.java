@@ -6,6 +6,7 @@ import ai.newwave.agent.event.AgentEvent;
 import ai.newwave.agent.event.AgentEventType;
 import ai.newwave.agent.model.AgentMessage;
 import ai.newwave.agent.model.ContentBlock;
+import ai.newwave.agent.model.MessageRole;
 import ai.newwave.agent.model.ThinkingLevel;
 import ai.newwave.agent.state.spi.ConversationStore;
 import ai.newwave.agent.tool.AgentTool;
@@ -16,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -46,6 +48,7 @@ class AgentLoopTest {
         chatModel = mock(ChatModel.class);
         conversationStore = mock(ConversationStore.class);
         when(conversationStore.appendMessage(any(), any(), any())).thenReturn(Mono.empty());
+        when(conversationStore.appendMessages(any(), any(), any())).thenReturn(Mono.empty());
 
         sink = Sinks.many().multicast().onBackpressureBuffer();
         collectedEvents = new ArrayList<>();
@@ -485,5 +488,95 @@ class AgentLoopTest {
         // Should NOT throw — orphaned tool_use gets stripped
         loop.run().block();
         assertEquals(1, llmCallCount.get());
+    }
+
+    /**
+     * Regression: assistant + tool_results generated in one turn must be persisted as a single
+     * ordered batch via {@link ConversationStore#appendMessages}, never as independent
+     * {@link ConversationStore#appendMessage} calls that could race in the DB and land with
+     * IDENTITY-assigned sequence values out of logical order.
+     */
+    @Test
+    void perTurn_persistsAssistantAndToolResultsAsOneOrderedBatch() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            int call = llmCallCount.incrementAndGet();
+            if (call == 1) {
+                return Flux.just(toolCallChunk("tool-1", "test_tool", "{\"input\":\"a\"}"));
+            }
+            return Flux.just(textChunk("done"));
+        });
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AgentMessage>> batchCaptor =
+                ArgumentCaptor.forClass((Class) List.class);
+
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("Hi"));
+        AgentLoop loop = createLoop(messages, List.of(new TestTool(false)));
+        loop.run().block();
+
+        // Turn-internal writes must go through the ordered batch API, not the per-message API.
+        // Per-message appendMessage is reserved for Agent.java (user message, follow-up).
+        verify(conversationStore, never()).appendMessage(any(), any(), any());
+        verify(conversationStore, atLeast(1))
+                .appendMessages(any(), any(), batchCaptor.capture());
+
+        // First batch = assistant tool_use + tool_result, in that logical order
+        List<AgentMessage> firstTurnBatch = batchCaptor.getAllValues().get(0);
+        assertEquals(2, firstTurnBatch.size(),
+                "First turn should flush assistant + tool_result together");
+        assertEquals(MessageRole.ASSISTANT, firstTurnBatch.get(0).role());
+        assertEquals(MessageRole.TOOL_RESULT, firstTurnBatch.get(1).role());
+
+        // Second batch = assistant text response (final turn, no tools)
+        List<AgentMessage> secondTurnBatch = batchCaptor.getAllValues().get(1);
+        assertEquals(1, secondTurnBatch.size());
+        assertEquals(MessageRole.ASSISTANT, secondTurnBatch.get(0).role());
+    }
+
+    /**
+     * Regression: with parallel tools, the assistant message must precede all tool_results in
+     * the flushed batch, even when tool executions complete before the assistant's LLM stream
+     * returns. This guards against the 1.5.1 race where fire-and-forget per-message writes
+     * could commit a tool_result before its matching assistant tool_use.
+     */
+    @Test
+    void parallelTools_batchOrdersAssistantBeforeAllToolResults() {
+        AtomicInteger llmCallCount = new AtomicInteger(0);
+        when(chatModel.stream(any(Prompt.class))).thenAnswer(invocation -> {
+            int call = llmCallCount.incrementAndGet();
+            if (call == 1) {
+                return Flux.just(
+                        toolCallChunk("tool-a", "test_tool", "{\"input\":\"a\"}"),
+                        toolCallChunk("tool-b", "test_tool", "{\"input\":\"b\"}"),
+                        toolCallChunk("tool-c", "test_tool", "{\"input\":\"c\"}")
+                );
+            }
+            return Flux.just(textChunk("done"));
+        });
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AgentMessage>> batchCaptor =
+                ArgumentCaptor.forClass((Class) List.class);
+
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(AgentMessage.user("Hi"));
+        AgentLoop loop = createLoop(messages, List.of(new TestTool(false)));
+        loop.run().block();
+
+        verify(conversationStore, atLeast(1))
+                .appendMessages(any(), any(), batchCaptor.capture());
+
+        List<AgentMessage> firstBatch = batchCaptor.getAllValues().get(0);
+        assertEquals(4, firstBatch.size(),
+                "Batch should contain 1 assistant + 3 tool_results");
+        assertEquals(MessageRole.ASSISTANT, firstBatch.get(0).role(),
+                "Assistant must be the first row in the batch — otherwise IDENTITY would "
+                        + "assign it a sequence after its own tool_results on replay");
+        for (int i = 1; i < firstBatch.size(); i++) {
+            assertEquals(MessageRole.TOOL_RESULT, firstBatch.get(i).role(),
+                    "All non-first rows in the batch must be tool_results");
+        }
     }
 }

@@ -30,12 +30,16 @@ import java.util.List;
  * CREATE INDEX idx_conv_agent_conversation ON conversation_messages (agent_id, conversation_id, sequence);
  * </pre>
  *
- * The {@code sequence} column is assigned by the database on insert. Tools running in
- * {@code ToolExecutionMode.PARALLEL} can append concurrently; the DB serializes the assignment,
- * so each row gets a unique, monotonic value. Read order follows insert order via
- * {@code ORDER BY sequence}.
+ * <p>The {@code sequence} column is assigned by the database on insert. IDENTITY assigns values
+ * in <em>commit</em> order, not begin order — concurrent {@link #appendMessage} calls from the
+ * same logical turn can therefore land out of logical order. Callers that need ordering (such
+ * as the agent loop flushing an assistant message with its tool_results) must use
+ * {@link #appendMessages} to submit the batch serially within one caller.
  */
 public class JdbcConversationStore implements ConversationStore {
+
+    private static final String INSERT_SQL =
+            "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)";
 
     private final JdbcTemplate jdbc;
 
@@ -46,12 +50,16 @@ public class JdbcConversationStore implements ConversationStore {
 
     @Override
     public Mono<Void> appendMessage(String agentId, String conversationId, AgentMessage message) {
-        return Mono.fromRunnable(() ->
-                jdbc.update(
-                        "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                        message.id(), agentId, conversationId, message.role().name(),
-                        serialize(message.content()),
-                        Timestamp.from(message.timestamp())));
+        return Mono.fromRunnable(() -> jdbc.update(INSERT_SQL, toArgs(agentId, conversationId, message)));
+    }
+
+    @Override
+    public Mono<Void> appendMessages(String agentId, String conversationId, List<AgentMessage> messages) {
+        if (messages.isEmpty()) return Mono.empty();
+        List<Object[]> batch = messages.stream()
+                .map(m -> toArgs(agentId, conversationId, m))
+                .toList();
+        return Mono.fromRunnable(() -> jdbc.batchUpdate(INSERT_SQL, batch));
     }
 
     @Override
@@ -73,14 +81,23 @@ public class JdbcConversationStore implements ConversationStore {
     public Mono<Void> replaceMessages(String agentId, String conversationId, List<AgentMessage> messages) {
         return Mono.fromRunnable(() -> {
             jdbc.update("DELETE FROM conversation_messages WHERE agent_id = ? AND conversation_id = ?", agentId, conversationId);
-            for (AgentMessage msg : messages) {
-                jdbc.update(
-                        "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                        msg.id(), agentId, conversationId, msg.role().name(),
-                        serialize(msg.content()),
-                        Timestamp.from(msg.timestamp()));
-            }
+            if (messages.isEmpty()) return;
+            List<Object[]> batch = messages.stream()
+                    .map(m -> toArgs(agentId, conversationId, m))
+                    .toList();
+            jdbc.batchUpdate(INSERT_SQL, batch);
         });
+    }
+
+    private Object[] toArgs(String agentId, String conversationId, AgentMessage message) {
+        return new Object[] {
+                message.id(),
+                agentId,
+                conversationId,
+                message.role().name(),
+                serialize(message.content()),
+                Timestamp.from(message.timestamp())
+        };
     }
 
     @Override

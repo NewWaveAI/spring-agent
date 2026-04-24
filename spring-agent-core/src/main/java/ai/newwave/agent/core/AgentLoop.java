@@ -62,6 +62,12 @@ public class AgentLoop {
     private long totalInputTokens = 0;
     private long totalOutputTokens = 0;
 
+    // Messages produced during the current turn (assistant + tool_results), flushed
+    // atomically at turn end so their sequence values match logical order on replay.
+    // Guarded by intrinsic lock because tool_result appends from PARALLEL mode are
+    // dispatched on independent reactor threads.
+    private final List<AgentMessage> pendingTurnMessages = new ArrayList<>();
+
     public AgentLoop(
             String agentId,
             String conversationId,
@@ -160,10 +166,11 @@ public class AgentLoop {
                                 .then(Mono.defer(() -> {
                                     List<ContentBlock.ToolUse> toolCalls = extractToolCalls();
                                     if (toolCalls.isEmpty()) {
-                                        sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
-                                        return Mono.<Void>empty();
+                                        return flushTurn().doOnSuccess(v ->
+                                                sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber)));
                                     }
                                     return executeTools(toolCalls, hookCtx)
+                                            .then(flushTurn())
                                             .then(Mono.defer(() -> {
                                                 sink.tryEmitNext(new AgentEvent.TurnEnd(agentId, conversationId, turnNumber));
                                                 if (shouldTerminate) {
@@ -367,11 +374,35 @@ public class AgentLoop {
 
     // --- Helpers ---
 
+    /**
+     * Accumulate a message produced during the current turn. The in-memory list is updated
+     * immediately so the running loop sees it; the durable write is deferred to
+     * {@link #flushTurn} so assistant + tool_results persist as one ordered batch.
+     */
     private void addMessage(AgentMessage message) {
-        messages.add(message);
-        conversationStore.appendMessage(agentId, conversationId, message)
-                .doOnError(e -> log.error("Failed to persist message to conversation store", e))
-                .subscribe();
+        synchronized (pendingTurnMessages) {
+            messages.add(message);
+            pendingTurnMessages.add(message);
+        }
+    }
+
+    /**
+     * Persist the messages accumulated during the current turn in one ordered batch and clear
+     * the pending buffer. Must be called at every turn boundary before recursing — otherwise
+     * the next turn's writes would race with this turn's and the IDENTITY sequence column
+     * would reorder them.
+     */
+    private Mono<Void> flushTurn() {
+        return Mono.defer(() -> {
+            List<AgentMessage> toFlush;
+            synchronized (pendingTurnMessages) {
+                if (pendingTurnMessages.isEmpty()) return Mono.empty();
+                toFlush = List.copyOf(pendingTurnMessages);
+                pendingTurnMessages.clear();
+            }
+            return conversationStore.appendMessages(agentId, conversationId, toFlush)
+                    .doOnError(e -> log.error("Failed to persist turn messages to conversation store", e));
+        });
     }
 
     private List<ContentBlock.ToolUse> extractToolCalls() {

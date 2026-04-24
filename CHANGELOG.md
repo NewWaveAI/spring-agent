@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.2] - 2026-04-24
+
+### Fixed
+- Out-of-order `sequence` assignment when an assistant `tool_use` and its `TOOL_RESULT` were written near-simultaneously. The 1.5.1 migration to `BIGINT GENERATED ALWAYS AS IDENTITY` eliminated the client-side `MAX(sequence)+1` race, but `IDENTITY` assigns values in commit order, not begin order. `AgentLoop` was firing per-message `appendMessage` calls fire-and-forget (`.subscribe()`), so when a fast parallel tool completed in ~6 ms the tool_result's row could commit before its matching assistant row and take the lower sequence. On replay, Anthropic then received a `tool_result` whose `tool_use` had not yet appeared → 400. The library now buffers every assistant + tool_result produced in a turn and flushes them as one ordered batch at turn end.
+
+### Added
+- `ConversationStore.appendMessages(agentId, conversationId, List<AgentMessage>)` — atomic ordered batch insert. Default implementation falls back to per-message `appendMessage` (not safe against concurrent writers); durable stores override. `R2dbcConversationStore` and `JdbcConversationStore` submit the batch serially from a single caller so IDENTITY assigns sequences in list order.
+
+### Changed
+- `AgentLoop` accumulates turn-produced messages (assistant, tool_result, drained steering) in an in-memory buffer and flushes them via `appendMessages` at each turn boundary. The in-memory `messages` list is still updated synchronously so the running loop sees its own writes; only the DB write is deferred.
+- `Agent.runWithLock`, `Agent.runStateless`, and `Agent.drainFollowUps` now await the initial user-message / follow-up `appendMessage` before starting the loop, so a fast first assistant write can no longer race ahead of the user input.
+- Javadoc on `R2dbcConversationStore` and `JdbcConversationStore` corrected — the prior claim that "the DB serializes the assignment, so each row gets a unique, monotonic value" conflated uniqueness with logical ordering and is no longer accurate guidance.
+
 ## [1.5.1] - 2026-04-23
 
 ### Fixed

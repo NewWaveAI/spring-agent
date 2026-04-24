@@ -92,13 +92,11 @@ public class Agent {
                              java.util.Map<String, Object> attributes, Sinks.Many<AgentEvent> sink) {
         conversationStore.loadMessages(agentId, conversationId)
                 .collectList()
+                .flatMap(existingMessages -> conversationStore.appendMessage(agentId, conversationId, message)
+                        .thenReturn(existingMessages))
                 .subscribe(existingMessages -> {
                     List<AgentMessage> messages = new ArrayList<>(existingMessages);
                     messages.add(message);
-
-                    conversationStore.appendMessage(agentId, conversationId, message)
-                            .doOnError(e -> log.error("Failed to persist user message", e))
-                            .subscribe();
 
                     sink.tryEmitNext(new AgentEvent.AgentStart(agentId, conversationId));
 
@@ -125,7 +123,7 @@ public class Agent {
                             })
                             .subscribe();
                 }, error -> {
-                    log.error("Failed to load messages for {}:{}", agentId, conversationId, error);
+                    log.error("Failed to load or persist user message for {}:{}", agentId, conversationId, error);
                     stateManager.release(agentId, conversationId)
                             .doOnError(re -> log.error("Failed to release lock on error", re))
                             .subscribe();
@@ -142,32 +140,29 @@ public class Agent {
                                        java.util.Map<String, Object> attributes,
                                        Sinks.Many<AgentEvent> sink) {
         return stateManager.dequeueFollowUp(agentId, conversationId)
-                .flatMap(followUp -> {
-                    messages.add(followUp);
-                    conversationStore.appendMessage(agentId, conversationId, followUp)
-                            .doOnError(e -> log.error("Failed to persist follow-up message", e))
-                            .subscribe();
+                .flatMap(followUp -> conversationStore.appendMessage(agentId, conversationId, followUp)
+                        .doOnError(e -> log.error("Failed to persist follow-up message", e))
+                        .then(Mono.defer(() -> {
+                            messages.add(followUp);
 
-                    AgentLoop loop = new AgentLoop(
-                            agentId, conversationId, messages, attributes,
-                            config, chatModel, sink, conversationStore, stateManager);
+                            AgentLoop loop = new AgentLoop(
+                                    agentId, conversationId, messages, attributes,
+                                    config, chatModel, sink, conversationStore, stateManager);
 
-                    return loop.run()
-                            .then(drainFollowUps(agentId, conversationId, messages, attributes, sink));
-                });
+                            return loop.run()
+                                    .then(drainFollowUps(agentId, conversationId, messages, attributes, sink));
+                        })));
     }
 
     private void runStateless(String agentId, String conversationId, AgentMessage message,
                               java.util.Map<String, Object> attributes, Sinks.Many<AgentEvent> sink) {
         conversationStore.loadMessages(agentId, conversationId)
                 .collectList()
+                .flatMap(existingMessages -> conversationStore.appendMessage(agentId, conversationId, message)
+                        .thenReturn(existingMessages))
                 .subscribe(existingMessages -> {
                     List<AgentMessage> messages = new ArrayList<>(existingMessages);
                     messages.add(message);
-
-                    conversationStore.appendMessage(agentId, conversationId, message)
-                            .doOnError(e -> log.error("Failed to persist user message", e))
-                            .subscribe();
 
                     sink.tryEmitNext(new AgentEvent.AgentStart(agentId, conversationId));
 
@@ -187,7 +182,7 @@ public class Agent {
                             })
                             .subscribe();
                 }, error -> {
-                    log.error("Failed to load messages for {}:{}", agentId, conversationId, error);
+                    log.error("Failed to load or persist user message for {}:{}", agentId, conversationId, error);
                     sink.tryEmitNext(new AgentEvent.AgentEnd(agentId, conversationId, error.getMessage()));
                     sink.tryEmitComplete();
                 });

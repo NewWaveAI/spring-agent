@@ -28,12 +28,16 @@ import java.util.List;
  * CREATE INDEX idx_conv_agent_conversation ON conversation_messages (agent_id, conversation_id, sequence);
  * </pre>
  *
- * The {@code sequence} column is assigned by the database on insert. Tools running in
- * {@code ToolExecutionMode.PARALLEL} can append concurrently; the DB serializes the assignment,
- * so each row gets a unique, monotonic value. Read order follows insert order via
- * {@code ORDER BY sequence}.
+ * <p>The {@code sequence} column is assigned by the database on insert. IDENTITY assigns values
+ * in <em>commit</em> order, not begin order — concurrent {@link #appendMessage} calls from the
+ * same logical turn can therefore land out of logical order. Callers that need ordering (such
+ * as the agent loop flushing an assistant message with its tool_results) must use
+ * {@link #appendMessages} to submit the batch serially within one caller.
  */
 public class R2dbcConversationStore implements ConversationStore {
+
+    private static final String INSERT_COLUMNS =
+            "INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES ";
 
     private final DatabaseClient db;
 
@@ -43,14 +47,42 @@ public class R2dbcConversationStore implements ConversationStore {
 
     @Override
     public Mono<Void> appendMessage(String agentId, String conversationId, AgentMessage message) {
-        return db.sql("INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (:id, :agentId, :conversationId, :role, :content, :timestamp)")
-                .bind("id", message.id())
-                .bind("agentId", agentId)
-                .bind("conversationId", conversationId)
-                .bind("role", message.role().name())
-                .bind("content", Json.serializeContentBlocks(message.content()))
-                .bind("timestamp", message.timestamp())
-                .then();
+        return appendMessages(agentId, conversationId, List.of(message));
+    }
+
+    @Override
+    public Mono<Void> appendMessages(String agentId, String conversationId, List<AgentMessage> messages) {
+        if (messages.isEmpty()) return Mono.empty();
+
+        // Build a single multi-row INSERT: VALUES (:id0, :agentId0, ...), (:id1, :agentId1, ...), ...
+        // DatabaseClient has no native batch API, so this is the portable way to get one wire
+        // round-trip while keeping :name parameter style (driver-agnostic). Ordering is preserved
+        // because the row tuples are emitted in list iteration order, so IDENTITY assigns
+        // sequence values in the same order.
+        StringBuilder sql = new StringBuilder(INSERT_COLUMNS);
+        for (int i = 0; i < messages.size(); i++) {
+            if (i > 0) sql.append(", ");
+            sql.append("(:id").append(i)
+                    .append(", :agentId").append(i)
+                    .append(", :conversationId").append(i)
+                    .append(", :role").append(i)
+                    .append(", :content").append(i)
+                    .append(", :timestamp").append(i)
+                    .append(')');
+        }
+
+        DatabaseClient.GenericExecuteSpec spec = db.sql(sql.toString());
+        for (int i = 0; i < messages.size(); i++) {
+            AgentMessage m = messages.get(i);
+            spec = spec
+                    .bind("id" + i, m.id())
+                    .bind("agentId" + i, agentId)
+                    .bind("conversationId" + i, conversationId)
+                    .bind("role" + i, m.role().name())
+                    .bind("content" + i, Json.serializeContentBlocks(m.content()))
+                    .bind("timestamp" + i, m.timestamp());
+        }
+        return spec.then();
     }
 
     @Override
@@ -72,16 +104,7 @@ public class R2dbcConversationStore implements ConversationStore {
                 .bind("agentId", agentId)
                 .bind("conversationId", conversationId)
                 .then()
-                .thenMany(Flux.fromIterable(messages)
-                        .concatMap(msg -> db.sql("INSERT INTO conversation_messages (id, agent_id, conversation_id, role, content, timestamp) VALUES (:id, :agentId, :conversationId, :role, :content, :timestamp)")
-                                .bind("id", msg.id())
-                                .bind("agentId", agentId)
-                                .bind("conversationId", conversationId)
-                                .bind("role", msg.role().name())
-                                .bind("content", Json.serializeContentBlocks(msg.content()))
-                                .bind("timestamp", msg.timestamp())
-                                .then()))
-                .then();
+                .then(appendMessages(agentId, conversationId, messages));
     }
 
     @Override
