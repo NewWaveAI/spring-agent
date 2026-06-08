@@ -4,9 +4,12 @@ import java.time.Instant;
 import java.util.Set;
 
 /**
- * A durable knowledge entry shared across all conversations.
+ * A durable knowledge entry, scoped to a single agent. Memories are shared across all
+ * of that agent's conversations but never across agents — {@code agentId} partitions the
+ * store so two agents can use the same {@code key} without colliding or leaking.
  */
 public record Memory(
+        String agentId,
         String key,
         String content,
         Set<String> tags,
@@ -19,8 +22,8 @@ public record Memory(
         if (updatedAt == null) updatedAt = createdAt;
     }
 
-    public static Memory of(String key, String content, Set<String> tags) {
+    public static Memory of(String agentId, String key, String content, Set<String> tags) {
         Instant now = Instant.now();
-        return new Memory(key, content, tags, now, now);
+        return new Memory(agentId, key, content, tags, now, now);
     }
 }

@@ -22,7 +22,7 @@ public class MemoryContextHook implements AgentHooks {
 
     @Override
     public Mono<List<AgentMessage>> transformContext(HookContext ctx, List<AgentMessage> messages) {
-        return memoryService.summarize()
+        return memoryService.summarize(ctx.agentId())
                 .flatMap(summary -> {
                     if (summary == null || summary.isBlank()) {
                         return Mono.just(messages);

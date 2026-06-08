@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Agent memory was entirely non-functional and not tenant-isolated.** `R2dbcMemoryStore`/`JdbcMemoryStore` ran `INSERT INTO agent_memories (key, content, tags, created_at, updated_at) … ON CONFLICT (key)` — omitting the `id`/`agent_id` columns and conflicting on `key` alone. Against the documented schema (unique `(agent_id, key)`) every `save_memory` failed (`no unique or exclusion constraint matching the ON CONFLICT specification`), so the table stayed empty. Worse, `findByKey`/`findByTags`/`listAll`/`delete` ignored `agent_id` entirely, so a store shared across agents would have read, overwritten, and deleted each other's memories (and `MemoryContextHook` injected *all* agents' memories into every agent's context). Both stores now write `id` + `agent_id`, conflict on `(agent_id, key)`, and scope every read/delete by `agent_id`.
+
+### Changed (breaking — memory SPI)
+- `Memory` gains a leading `agentId` field; the factory is now `Memory.of(agentId, key, content, tags)`.
+- `MemoryStore` methods are agent-scoped: `findByKey(agentId, key)`, `findByTags(agentId, tags)`, `listAll(agentId)`, `delete(agentId, key)` (`save(Memory)` unchanged — the memory carries its own `agentId`).
+- `MemoryService` methods take `agentId`: `save/get/search/listAll/delete/summarize`.
+- `SaveMemoryTool`, `SearchMemoryTool`, and `MemoryContextHook` pass `agentId` from the tool/hook context. Consumers need no wiring change — the bean constructors are unchanged.
+- Required `agent_memories` schema (documented on both stores): `id VARCHAR PRIMARY KEY, agent_id VARCHAR NOT NULL, key VARCHAR NOT NULL, content TEXT NOT NULL, tags TEXT, created_at, updated_at` + `UNIQUE (agent_id, key)`.
+
 ## [1.5.2] - 2026-04-24
 
 ### Fixed

@@ -67,8 +67,8 @@ public class SearchMemoryTool implements AgentTool<SearchMemoryParams, List<Memo
         SearchMemoryParams params = context.parameters();
 
         var source = params.tags().isEmpty()
-                ? memoryService.listAll()
-                : memoryService.search(params.tags());
+                ? memoryService.listAll(context.agentId())
+                : memoryService.search(context.agentId(), params.tags());
 
         return source.collectList()
                 .map(memories -> {
