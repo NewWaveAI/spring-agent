@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- `AgentEvent.TokenUsage` now carries `cacheCreationInputTokens` + `cacheReadInputTokens` (additive — the 3-arg constructor still works and defaults them to 0). `AgentLoop` reads them off the provider-native usage (`Usage.getNativeUsage()`) via a defensive reflective accessor, so Anthropic prompt-cache accounting is captured without coupling the provider-agnostic core to the Anthropic SDK type — other providers report 0. Lets consumers measure prompt-cache effectiveness / true input cost.
+
+## [1.6.0] - 2026-06-08
+
 ### Fixed
 - **Agent memory was entirely non-functional and not tenant-isolated.** `R2dbcMemoryStore`/`JdbcMemoryStore` ran `INSERT INTO agent_memories (key, content, tags, created_at, updated_at) … ON CONFLICT (key)` — omitting the `id`/`agent_id` columns and conflicting on `key` alone. Against the documented schema (unique `(agent_id, key)`) every `save_memory` failed (`no unique or exclusion constraint matching the ON CONFLICT specification`), so the table stayed empty. Worse, `findByKey`/`findByTags`/`listAll`/`delete` ignored `agent_id` entirely, so a store shared across agents would have read, overwritten, and deleted each other's memories (and `MemoryContextHook` injected *all* agents' memories into every agent's context). Both stores now write `id` + `agent_id`, conflict on `(agent_id, key)`, and scope every read/delete by `agent_id`.
 
