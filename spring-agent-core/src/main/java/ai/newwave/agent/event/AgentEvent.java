@@ -41,7 +41,12 @@ public sealed interface AgentEvent permits
         @Override public AgentEventType type() { return AgentEventType.AGENT_START; }
     }
 
-    record TokenUsage(String model, long inputTokens, long outputTokens) {
+    record TokenUsage(String model, long inputTokens, long outputTokens,
+                      long cacheCreationInputTokens, long cacheReadInputTokens) {
+        /** Back-compat for callers/providers without a prompt-cache breakdown. */
+        public TokenUsage(String model, long inputTokens, long outputTokens) {
+            this(model, inputTokens, outputTokens, 0L, 0L);
+        }
         public long totalTokens() { return inputTokens + outputTokens; }
     }
 

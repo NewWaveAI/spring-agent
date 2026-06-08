@@ -61,6 +61,8 @@ public class AgentLoop {
     private volatile boolean shouldTerminate = false;
     private long totalInputTokens = 0;
     private long totalOutputTokens = 0;
+    private long totalCacheCreationInputTokens = 0;
+    private long totalCacheReadInputTokens = 0;
 
     // Messages produced during the current turn (assistant + tool_results), flushed
     // atomically at turn end so their sequence values match logical order on replay.
@@ -114,7 +116,26 @@ public class AgentLoop {
      * Get accumulated token usage across all LLM calls in this loop.
      */
     public AgentEvent.TokenUsage getTokenUsage() {
-        return new AgentEvent.TokenUsage(config.model(), totalInputTokens, totalOutputTokens);
+        return new AgentEvent.TokenUsage(config.model(), totalInputTokens, totalOutputTokens,
+                totalCacheCreationInputTokens, totalCacheReadInputTokens);
+    }
+
+    /**
+     * Read a long-valued accessor (e.g. {@code cacheCreationInputTokens}) off a provider-native
+     * usage object by reflection, tolerating {@code long}/{@code Long}/{@code Optional<? extends
+     * Number>} return shapes. Returns 0 when the object is null or doesn't expose the accessor, so
+     * prompt-cache accounting is Anthropic-specific without coupling this provider-agnostic core to
+     * the Anthropic SDK type — other providers simply report 0.
+     */
+    static long readLongAccessor(Object nativeUsage, String accessor) {
+        if (nativeUsage == null) return 0L;
+        try {
+            Object v = nativeUsage.getClass().getMethod(accessor).invoke(nativeUsage);
+            if (v instanceof java.util.Optional<?> opt) v = opt.orElse(null);
+            return v instanceof Number n ? n.longValue() : 0L;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return 0L;
+        }
     }
 
     private Mono<Void> innerLoop(int turnNumber) {
@@ -207,6 +228,11 @@ public class AgentLoop {
                         if (usage.getCompletionTokens() != null && usage.getCompletionTokens() > 0) {
                             totalOutputTokens += usage.getCompletionTokens();
                         }
+                        // Anthropic prompt-cache tokens are only on the provider-native usage, not
+                        // the Spring AI Usage interface. Read defensively (0 for other providers).
+                        Object nativeUsage = usage.getNativeUsage();
+                        totalCacheCreationInputTokens += readLongAccessor(nativeUsage, "cacheCreationInputTokens");
+                        totalCacheReadInputTokens += readLongAccessor(nativeUsage, "cacheReadInputTokens");
                     }
 
                     Generation generation = chatResponse.getResult();
