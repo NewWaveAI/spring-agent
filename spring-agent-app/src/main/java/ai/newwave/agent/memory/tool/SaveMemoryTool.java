@@ -71,7 +71,7 @@ public class SaveMemoryTool implements AgentTool<SaveMemoryParams, String> {
     @Override
     public Mono<AgentToolResult<String>> execute(ToolCallContext<SaveMemoryParams> context) {
         SaveMemoryParams params = context.parameters();
-        return memoryService.save(params.key(), params.content(), params.tags())
+        return memoryService.save(context.agentId(), params.key(), params.content(), params.tags())
                 .then(Mono.just(AgentToolResult.success(
                         "Memory saved: " + params.key(), params.key())));
     }

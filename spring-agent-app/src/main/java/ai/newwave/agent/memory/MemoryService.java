@@ -10,6 +10,9 @@ import java.util.Set;
 
 /**
  * Public API for agent memory (cross-conversation knowledge store).
+ *
+ * <p>Every operation is scoped to an {@code agentId} so a single shared store stays
+ * partitioned per agent — one agent never sees, overwrites, or deletes another's memories.
  */
 public class MemoryService {
 
@@ -19,34 +22,34 @@ public class MemoryService {
         this.store = store;
     }
 
-    public Mono<Void> save(String key, String content, Set<String> tags) {
-        return store.findByKey(key)
-                .map(existing -> new Memory(key, content, tags, existing.createdAt(), Instant.now()))
-                .defaultIfEmpty(Memory.of(key, content, tags))
+    public Mono<Void> save(String agentId, String key, String content, Set<String> tags) {
+        return store.findByKey(agentId, key)
+                .map(existing -> new Memory(agentId, key, content, tags, existing.createdAt(), Instant.now()))
+                .defaultIfEmpty(Memory.of(agentId, key, content, tags))
                 .flatMap(store::save);
     }
 
-    public Mono<Memory> get(String key) {
-        return store.findByKey(key);
+    public Mono<Memory> get(String agentId, String key) {
+        return store.findByKey(agentId, key);
     }
 
-    public Flux<Memory> search(Set<String> tags) {
-        return store.findByTags(tags);
+    public Flux<Memory> search(String agentId, Set<String> tags) {
+        return store.findByTags(agentId, tags);
     }
 
-    public Flux<Memory> listAll() {
-        return store.listAll();
+    public Flux<Memory> listAll(String agentId) {
+        return store.listAll(agentId);
     }
 
-    public Mono<Void> delete(String key) {
-        return store.delete(key);
+    public Mono<Void> delete(String agentId, String key) {
+        return store.delete(agentId, key);
     }
 
     /**
-     * Format all memories as a text block for context injection.
+     * Format this agent's memories as a text block for context injection.
      */
-    public Mono<String> summarize() {
-        return store.listAll()
+    public Mono<String> summarize(String agentId) {
+        return store.listAll(agentId)
                 .map(m -> "[%s] (tags: %s) %s".formatted(m.key(), String.join(", ", m.tags()), m.content()))
                 .collectList()
                 .map(lines -> String.join("\n", lines));

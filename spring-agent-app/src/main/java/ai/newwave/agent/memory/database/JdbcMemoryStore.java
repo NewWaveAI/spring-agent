@@ -12,25 +12,29 @@ import reactor.core.publisher.Mono;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 /**
- * JDBC-backed memory store.
+ * JDBC-backed memory store. Memories are partitioned by {@code agent_id}.
  *
  * Required table:
  * <pre>
  * CREATE TABLE agent_memories (
- *     key VARCHAR(255) PRIMARY KEY,
+ *     id VARCHAR(255) PRIMARY KEY,
+ *     agent_id VARCHAR(255) NOT NULL,
+ *     key VARCHAR(255) NOT NULL,
  *     content TEXT NOT NULL,
  *     tags TEXT,
  *     created_at TIMESTAMP NOT NULL,
  *     updated_at TIMESTAMP NOT NULL
  * );
+ * CREATE UNIQUE INDEX idx_memories_key ON agent_memories (agent_id, key);
  * </pre>
  */
 public class JdbcMemoryStore implements MemoryStore {
 
     private final JdbcTemplate jdbc;
-    
+
 
     public JdbcMemoryStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -40,56 +44,60 @@ public class JdbcMemoryStore implements MemoryStore {
     public Mono<Void> save(Memory memory) {
         return Mono.fromRunnable(() ->
                 jdbc.update("""
-                        INSERT INTO agent_memories (key, content, tags, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
-                        ON CONFLICT (key) DO UPDATE SET
+                        INSERT INTO agent_memories (id, agent_id, key, content, tags, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (agent_id, key) DO UPDATE SET
                             content = EXCLUDED.content, tags = EXCLUDED.tags, updated_at = EXCLUDED.updated_at
                         """,
-                        memory.key(), memory.content(), serializeTags(memory.tags()),
+                        UUID.randomUUID().toString(), memory.agentId(), memory.key(), memory.content(),
+                        serializeTags(memory.tags()),
                         Timestamp.from(memory.createdAt()), Timestamp.from(memory.updatedAt())));
     }
 
     @Override
-    public Mono<Memory> findByKey(String key) {
+    public Mono<Memory> findByKey(String agentId, String key) {
         return Mono.defer(() -> {
             List<Memory> results = jdbc.query(
-                    "SELECT key, content, tags, created_at, updated_at FROM agent_memories WHERE key = ?",
+                    "SELECT agent_id, key, content, tags, created_at, updated_at FROM agent_memories WHERE agent_id = ? AND key = ?",
                     (rs, rowNum) -> mapRow(rs),
-                    key);
+                    agentId, key);
             return results.isEmpty() ? Mono.empty() : Mono.just(results.getFirst());
         });
     }
 
     @Override
-    public Flux<Memory> findByTags(Set<String> tags) {
+    public Flux<Memory> findByTags(String agentId, Set<String> tags) {
         return Flux.defer(() -> {
-            // Load all and filter in-memory (simple approach, works for reasonable memory counts)
+            // Load this agent's memories and filter in-memory (simple approach, works for reasonable counts)
             List<Memory> all = jdbc.query(
-                    "SELECT key, content, tags, created_at, updated_at FROM agent_memories",
-                    (rs, rowNum) -> mapRow(rs));
+                    "SELECT agent_id, key, content, tags, created_at, updated_at FROM agent_memories WHERE agent_id = ?",
+                    (rs, rowNum) -> mapRow(rs),
+                    agentId);
             return Flux.fromIterable(all)
                     .filter(m -> m.tags().stream().anyMatch(tags::contains));
         });
     }
 
     @Override
-    public Flux<Memory> listAll() {
+    public Flux<Memory> listAll(String agentId) {
         return Flux.defer(() -> {
             List<Memory> all = jdbc.query(
-                    "SELECT key, content, tags, created_at, updated_at FROM agent_memories ORDER BY updated_at DESC",
-                    (rs, rowNum) -> mapRow(rs));
+                    "SELECT agent_id, key, content, tags, created_at, updated_at FROM agent_memories WHERE agent_id = ? ORDER BY updated_at DESC",
+                    (rs, rowNum) -> mapRow(rs),
+                    agentId);
             return Flux.fromIterable(all);
         });
     }
 
     @Override
-    public Mono<Void> delete(String key) {
+    public Mono<Void> delete(String agentId, String key) {
         return Mono.fromRunnable(() ->
-                jdbc.update("DELETE FROM agent_memories WHERE key = ?", key));
+                jdbc.update("DELETE FROM agent_memories WHERE agent_id = ? AND key = ?", agentId, key));
     }
 
     private Memory mapRow(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new Memory(
+                rs.getString("agent_id"),
                 rs.getString("key"),
                 rs.getString("content"),
                 deserializeTags(rs.getString("tags")),
