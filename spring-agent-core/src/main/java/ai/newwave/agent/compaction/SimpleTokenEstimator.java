@@ -31,6 +31,9 @@ public class SimpleTokenEstimator implements TokenEstimator {
                         .mapToInt(b -> b instanceof ContentBlock.Text txt ? estimateTokens(txt.text()) : 0)
                         .sum();
                 case ContentBlock.Thinking t -> estimateTokens(t.thinking());
+                // Binary media has no text length; use a coarse flat estimate so the compaction
+                // trigger doesn't grossly undercount (the model enforces the real image-token cost).
+                case ContentBlock.Media m -> m.mimeType().startsWith("image/") ? 1600 : 3000;
             };
         }
         return tokens;

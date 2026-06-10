@@ -23,6 +23,21 @@ public record AgentMessage(
         return new AgentMessage(MessageRole.USER, List.of(new ContentBlock.Text(text)));
     }
 
+    /**
+     * Build a user message that carries binary attachments (images / PDFs) alongside the text.
+     * The text block is included only when non-blank (multimodal models reject empty text blocks).
+     */
+    public static AgentMessage userWithAttachments(String text, List<ContentBlock> attachments) {
+        List<ContentBlock> blocks = new java.util.ArrayList<>();
+        if (text != null && !text.isBlank()) {
+            blocks.add(new ContentBlock.Text(text));
+        }
+        if (attachments != null) {
+            blocks.addAll(attachments);
+        }
+        return new AgentMessage(MessageRole.USER, List.copyOf(blocks));
+    }
+
     public static AgentMessage assistant(List<ContentBlock> content) {
         return new AgentMessage(MessageRole.ASSISTANT, content);
     }

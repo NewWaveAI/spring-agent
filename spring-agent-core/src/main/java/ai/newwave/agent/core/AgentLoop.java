@@ -515,7 +515,26 @@ public class AgentLoop {
                             .filter(b -> b instanceof ContentBlock.Text)
                             .map(b -> ((ContentBlock.Text) b).text())
                             .collect(Collectors.joining("\n"));
-                    Message userMsg = new UserMessage(text);
+                    // Attach any binary media (images / PDFs) so multimodal models can see them.
+                    List<org.springframework.ai.content.Media> media = msg.content().stream()
+                            .filter(b -> b instanceof ContentBlock.Media)
+                            .map(b -> (ContentBlock.Media) b)
+                            .map(m -> new org.springframework.ai.content.Media(
+                                    org.springframework.util.MimeType.valueOf(m.mimeType()),
+                                    new org.springframework.core.io.ByteArrayResource(
+                                            java.util.Base64.getDecoder().decode(m.data()))))
+                            .toList();
+                    Message userMsg;
+                    if (media.isEmpty()) {
+                        userMsg = new UserMessage(text);
+                    } else {
+                        UserMessage.Builder b = UserMessage.builder().media(media);
+                        // Anthropic rejects empty text blocks — only set text when present.
+                        if (!text.isBlank()) {
+                            b.text(text);
+                        }
+                        userMsg = b.build();
+                    }
                     if (!pendingToolUseIds.isEmpty()) {
                         // Defer user message until tool_results arrive
                         deferred.add(userMsg);
