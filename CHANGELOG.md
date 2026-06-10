@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **Multimodal user input.** New `ContentBlock.Media(mimeType, data)` sealed-interface case (e.g. `image/png`, `application/pdf`; `data` is Base64). `AgentLoop` attaches any `Media` blocks on a USER message to a multimodal Spring AI `UserMessage` (text omitted when blank, so image-only turns don't send an empty text block) — vision-capable models now actually see the image/document. `AgentMessage.userWithAttachments(text, attachments)` builds such a turn. The block round-trips through the conversation store (Jackson `media` discriminator), renders as `[Attached <mime>]` in compaction transcripts, and gets a flat image/PDF token estimate.
 - `AgentEvent.TokenUsage` now carries `cacheCreationInputTokens` + `cacheReadInputTokens` (additive — the 3-arg constructor still works and defaults them to 0). `AgentLoop` reads them off the provider-native usage (`Usage.getNativeUsage()`) via a defensive reflective accessor, so Anthropic prompt-cache accounting is captured without coupling the provider-agnostic core to the Anthropic SDK type — other providers report 0. Lets consumers measure prompt-cache effectiveness / true input cost.
 
 ## [1.6.0] - 2026-06-08

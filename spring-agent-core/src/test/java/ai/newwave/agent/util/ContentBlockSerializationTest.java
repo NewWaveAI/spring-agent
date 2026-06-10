@@ -73,13 +73,30 @@ class ContentBlockSerializationTest {
     }
 
     @Test
+    void mediaBlockRoundtrip() {
+        String base64 = java.util.Base64.getEncoder().encodeToString(new byte[]{1, 2, 3, 4});
+        List<ContentBlock> blocks = List.of(new ContentBlock.Media("image/png", base64));
+
+        String json = Json.serializeContentBlocks(blocks);
+        assertTrue(json.contains("\"type\":\"media\""), "Missing type discriminator: " + json);
+
+        List<ContentBlock> deserialized = Json.deserializeContentBlocks(json);
+        assertEquals(1, deserialized.size());
+        assertInstanceOf(ContentBlock.Media.class, deserialized.getFirst());
+        ContentBlock.Media m = (ContentBlock.Media) deserialized.getFirst();
+        assertEquals("image/png", m.mimeType());
+        assertEquals(base64, m.data());
+    }
+
+    @Test
     void mixedBlocksRoundtrip() throws Exception {
         JsonNode input = new ObjectMapper().readTree("{\"q\":\"test\"}");
         List<ContentBlock> blocks = List.of(
                 new ContentBlock.Text("Hello"),
                 new ContentBlock.ToolUse("id-1", "search", input),
                 new ContentBlock.ToolResult("id-1", List.of(new ContentBlock.Text("found it")), false),
-                new ContentBlock.Thinking("reasoning...")
+                new ContentBlock.Thinking("reasoning..."),
+                new ContentBlock.Media("application/pdf", "AAAA")
         );
 
         String json = Json.serializeContentBlocks(blocks);
@@ -87,12 +104,14 @@ class ContentBlockSerializationTest {
         assertTrue(json.contains("\"type\":\"tool_use\""));
         assertTrue(json.contains("\"type\":\"tool_result\""));
         assertTrue(json.contains("\"type\":\"thinking\""));
+        assertTrue(json.contains("\"type\":\"media\""));
 
         List<ContentBlock> deserialized = Json.deserializeContentBlocks(json);
-        assertEquals(4, deserialized.size());
+        assertEquals(5, deserialized.size());
         assertInstanceOf(ContentBlock.Text.class, deserialized.get(0));
         assertInstanceOf(ContentBlock.ToolUse.class, deserialized.get(1));
         assertInstanceOf(ContentBlock.ToolResult.class, deserialized.get(2));
         assertInstanceOf(ContentBlock.Thinking.class, deserialized.get(3));
+        assertInstanceOf(ContentBlock.Media.class, deserialized.get(4));
     }
 }

@@ -95,6 +95,7 @@ public class LlmCompactionStrategy implements CompactionStrategy {
                                 .map(b -> ((ContentBlock.Text) b).text())
                                 .collect(Collectors.joining("\n"));
                         case ContentBlock.Thinking t -> "[Thinking: " + t.thinking().substring(0, Math.min(100, t.thinking().length())) + "...]";
+                        case ContentBlock.Media m -> "[Attached " + m.mimeType() + "]";
                     })
                     .collect(Collectors.joining("\n"));
 

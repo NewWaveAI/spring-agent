@@ -579,4 +579,30 @@ class AgentLoopTest {
                     "All non-first rows in the batch must be tool_results");
         }
     }
+
+    @Test
+    void userMediaBlock_sentToModelAsMultimodalUserMessage() {
+        ArgumentCaptor<org.springframework.ai.chat.prompt.Prompt> promptCaptor =
+                ArgumentCaptor.forClass(org.springframework.ai.chat.prompt.Prompt.class);
+        when(chatModel.stream(promptCaptor.capture())).thenReturn(Flux.just(textChunk("I see it.")));
+
+        String b64 = java.util.Base64.getEncoder().encodeToString(new byte[]{(byte) 0x89, 0x50, 0x4e, 0x47});
+        List<AgentMessage> messages = new ArrayList<>();
+        messages.add(new AgentMessage(MessageRole.USER, List.of(
+                new ContentBlock.Text("What is in this image?"),
+                new ContentBlock.Media("image/png", b64))));
+        AgentLoop loop = createLoop(messages);
+        loop.run().block();
+
+        org.springframework.ai.chat.messages.UserMessage userMsg =
+                promptCaptor.getValue().getInstructions().stream()
+                        .filter(m -> m instanceof org.springframework.ai.chat.messages.UserMessage)
+                        .map(m -> (org.springframework.ai.chat.messages.UserMessage) m)
+                        .reduce((a, b) -> b) // last user message
+                        .orElseThrow();
+
+        assertEquals(1, userMsg.getMedia().size(), "image should be attached as media");
+        assertEquals("image/png", userMsg.getMedia().getFirst().getMimeType().toString());
+        assertTrue(userMsg.getText().contains("What is in this image?"));
+    }
 }
